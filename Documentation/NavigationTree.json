@@ -1,0 +1,68 @@
+[
+  {
+    "id": 1,
+    "type": "folder",
+    "title": "Documentation",
+    "lastModified": "2026-10-01",
+    "folderName": "Documentation",
+    "description": "",
+    "children": [
+      {
+        "id": 2,
+        "type": "parentArticle",
+        "title": "Pipeline",
+        "lastModified": "2026-10-01",
+        "folderName": "Pipeline",
+        "description": "System architecture: three systems and the S3 layout they share, ported from the team repository's architecture document.",
+        "url": "Pipeline.html",
+        "children": [
+          {
+            "id": 21,
+            "type": "article",
+            "title": "Data catalog",
+            "lastModified": "2026-10-01",
+            "folderName": "DataCatalog",
+            "description": "",
+            "url": "DataCatalog.html"
+          },
+          {
+            "id": 22,
+            "type": "article",
+            "title": "Feature store",
+            "lastModified": "2026-10-01",
+            "folderName": "FeatureStore",
+            "description": "",
+            "url": "FeatureStore.html"
+          },
+          {
+            "id": 23,
+            "type": "article",
+            "title": "Pipeline",
+            "lastModified": "2026-10-01",
+            "folderName": "Pipeline",
+            "description": "",
+            "url": "Pipeline.html"
+          },
+          {
+            "id": 24,
+            "type": "article",
+            "title": "Batch transform",
+            "lastModified": "2026-10-01",
+            "folderName": "BatchTransform",
+            "description": "",
+            "url": "BatchTransform.html"
+          },
+          {
+            "id": 25,
+            "type": "article",
+            "title": "Monitoring",
+            "lastModified": "2026-10-01",
+            "folderName": "Monitoring",
+            "description": "",
+            "url": "Monitoring.html"
+          }
+        ]
+      }
+    ]
+  }
+]
