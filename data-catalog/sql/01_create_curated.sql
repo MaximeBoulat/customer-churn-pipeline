@@ -1,0 +1,76 @@
+CREATE TABLE "${database}"."cell2cell_curated"
+WITH (
+  format = 'PARQUET',
+  parquet_compression = 'SNAPPY',
+  external_location = '${curated_location}',
+  partitioned_by = ARRAY['split']
+) AS
+SELECT
+  try_cast(customerid AS bigint) AS customerid,
+  nullif(nullif(churn, ''), 'NA') AS churn,
+  try_cast(monthlyrevenue AS double) AS monthlyrevenue,
+  try_cast(monthlyminutes AS bigint) AS monthlyminutes,
+  try_cast(totalrecurringcharge AS bigint) AS totalrecurringcharge,
+  try_cast(directorassistedcalls AS double) AS directorassistedcalls,
+  try_cast(overageminutes AS bigint) AS overageminutes,
+  try_cast(roamingcalls AS double) AS roamingcalls,
+  try_cast(percchangeminutes AS bigint) AS percchangeminutes,
+  try_cast(percchangerevenues AS double) AS percchangerevenues,
+  try_cast(droppedcalls AS double) AS droppedcalls,
+  try_cast(blockedcalls AS double) AS blockedcalls,
+  try_cast(unansweredcalls AS double) AS unansweredcalls,
+  try_cast(customercarecalls AS double) AS customercarecalls,
+  try_cast(threewaycalls AS double) AS threewaycalls,
+  try_cast(receivedcalls AS double) AS receivedcalls,
+  try_cast(outboundcalls AS double) AS outboundcalls,
+  try_cast(inboundcalls AS double) AS inboundcalls,
+  try_cast(peakcallsinout AS double) AS peakcallsinout,
+  try_cast(offpeakcallsinout AS double) AS offpeakcallsinout,
+  try_cast(droppedblockedcalls AS double) AS droppedblockedcalls,
+  try_cast(callforwardingcalls AS double) AS callforwardingcalls,
+  try_cast(callwaitingcalls AS double) AS callwaitingcalls,
+  try_cast(monthsinservice AS bigint) AS monthsinservice,
+  try_cast(uniquesubs AS bigint) AS uniquesubs,
+  try_cast(activesubs AS bigint) AS activesubs,
+  nullif(nullif(servicearea, ''), 'NA') AS servicearea,
+  try_cast(handsets AS bigint) AS handsets,
+  try_cast(handsetmodels AS bigint) AS handsetmodels,
+  try_cast(currentequipmentdays AS bigint) AS currentequipmentdays,
+  try_cast(agehh1 AS bigint) AS agehh1,
+  try_cast(agehh2 AS bigint) AS agehh2,
+  nullif(nullif(childreninhh, ''), 'NA') AS childreninhh,
+  nullif(nullif(handsetrefurbished, ''), 'NA') AS handsetrefurbished,
+  nullif(nullif(handsetwebcapable, ''), 'NA') AS handsetwebcapable,
+  nullif(nullif(truckowner, ''), 'NA') AS truckowner,
+  nullif(nullif(rvowner, ''), 'NA') AS rvowner,
+  nullif(nullif(homeownership, ''), 'NA') AS homeownership,
+  nullif(nullif(buysviamailorder, ''), 'NA') AS buysviamailorder,
+  nullif(nullif(respondstomailoffers, ''), 'NA') AS respondstomailoffers,
+  nullif(nullif(optoutmailings, ''), 'NA') AS optoutmailings,
+  nullif(nullif(nonustravel, ''), 'NA') AS nonustravel,
+  nullif(nullif(ownscomputer, ''), 'NA') AS ownscomputer,
+  nullif(nullif(hascreditcard, ''), 'NA') AS hascreditcard,
+  try_cast(retentioncalls AS bigint) AS retentioncalls,
+  try_cast(retentionoffersaccepted AS bigint) AS retentionoffersaccepted,
+  nullif(nullif(newcellphoneuser, ''), 'NA') AS newcellphoneuser,
+  nullif(nullif(notnewcellphoneuser, ''), 'NA') AS notnewcellphoneuser,
+  try_cast(referralsmadebysubscriber AS bigint) AS referralsmadebysubscriber,
+  try_cast(incomegroup AS bigint) AS incomegroup,
+  nullif(nullif(ownsmotorcycle, ''), 'NA') AS ownsmotorcycle,
+  try_cast(adjustmentstocreditrating AS bigint) AS adjustmentstocreditrating,
+  try_cast(handsetprice AS bigint) AS handsetprice,
+  nullif(nullif(madecalltoretentionteam, ''), 'NA') AS madecalltoretentionteam,
+  nullif(nullif(creditrating, ''), 'NA') AS creditrating,
+  nullif(nullif(prizmcode, ''), 'NA') AS prizmcode,
+  nullif(nullif(occupation, ''), 'NA') AS occupation,
+  nullif(nullif(maritalstatus, ''), 'NA') AS maritalstatus,
+
+  -- Numeric label for modelling. NULL for holdout, which is unlabeled.
+  CASE churn WHEN 'Yes' THEN 1 WHEN 'No' THEN 0 ELSE NULL END AS churn_label,
+
+  -- Partition key. Must be last: Athena requires partition columns at the end
+  -- of the select list, in the order given to partitioned_by.
+  CASE WHEN churn IN ('Yes', 'No') THEN 'train' ELSE 'holdout' END AS split
+FROM "${database}"."cell2cell_raw"
+WHERE regexp_like(customerid, '^[0-9]+$')
+  AND "$path" LIKE '%.csv';

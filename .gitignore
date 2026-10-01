@@ -1,0 +1,53 @@
+# Datasets. Large, and licensed by their sources rather than ours to
+# redistribute. Fetch them locally; document provenance and the S3 location
+# in the repo instead of committing the files.
+data/
+*.zip
+*.csv
+*.xlsx
+*.parquet
+
+# Credentials and environment. Learner Lab session tokens and key pairs must
+# never be committed.
+.env
+.env.*
+!.env.example
+*.pem
+credentials
+.aws/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+crash.log
+crash.*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Editor. Personal, not shared config.
+.vscode/
+
+/.quarto/
+**/*.quarto_ipynb
+
+# Per-run artifacts. Evidence belongs in S3, not git.
+fitted_preprocess*.json
+preprocessing_parameters*.json
+dry_run_manifest.json
+integrated_path_*.json
+artifacts/*
+# These small deterministic checkpoint records are linked from the M2-15 report.
+!artifacts/m2-12-dry-run.json
+!artifacts/m2-13-synthetic-path.json
+!artifacts/m2-14-invalid-fixture.json
