@@ -14,11 +14,13 @@ sequenceDiagram
     box Storage
         participant S3 as S3 storage
     end
-    Note over Operator,S3: Start execution
-    Note over Operator: Operator starts a model run
-    Operator->>Launcher: run
-    Launcher->>Pipeline: start execution
-    Pipeline-->>Launcher: execution ARN
-    Launcher-->>Operator: print ARN and exit
-    Note over Pipeline: Execution running in AWS
+    Note over Operator,S3: Evaluate
+    Note over Pipeline: Training succeeded
+    Pipeline->>Jobs: start evaluation
+    Jobs->>S3: read model artifact and test CSV
+    S3-->>Jobs: model and labeled test rows
+    Note over Jobs: Predict test probabilities and calculate metrics
+    Jobs->>S3: write evaluation report
+    Jobs-->>Pipeline: evaluation succeeded
+    Note over Pipeline: Metrics ready for quality gate
 ```

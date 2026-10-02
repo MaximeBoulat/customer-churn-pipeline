@@ -9,23 +9,53 @@
   <h2>Feature overview</h2>
   <p>The SageMaker pipeline starts from curated labeled Parquet. It runs preprocessing and Feature Store ingestion, trains XGBoost, evaluates it on the test split, and registers a model only when its AUC passes the quality gate. A registered model starts as <code>PendingManualApproval</code>; this does not approve or deploy it.</p>
 
-  <h2>Component diagram</h2>
+  <h2>Component analysis</h2>
+
+  <h3>Diagram</h3>
+
   <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
 
-  <h2>Key AWS actors and concepts</h2>
+  <h3>Key AWS actors and concepts</h3>
   <p><strong>SageMaker Pipelines</strong> coordinates jobs and records each execution. <strong>Training jobs</strong> fit models on temporary compute. A <strong>model package group</strong> holds registered model versions; each package points to a trained artifact and its inference image.</p>
 
   <p><strong>SageMaker Processing</strong> runs the preprocessing and ingestion scripts. A <strong>Feature Group</strong> defines feature records; its offline store writes them to S3 asynchronously. The online store is disabled.</p>
 
-  <h2>Sequence diagram</h2>
+
+  <h2>Sequence analysis</h2>
+
+  <h3>Provision infrastructure</h3>
   <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
+  <p><code>terraform apply</code> in <code>pipeline/</code> uploads the Python files and creates or updates the Feature Group, model package group and pipeline definition. It does not start an execution.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>The exported <code>TF_VAR_*</code> values are embedded in the definition. <code>FEATURE_VERSION</code> selects the Feature Group name and schema; changing its name replaces the group managed by Terraform. Old offline files remain.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/
+<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ code/                  [WRITE] added initially; updated when changed
+│     ├─ preprocess.py
+│     ├─ process.py
+│     ├─ ingest.py
+│     └─ evaluate.py</span>
+└─ …</pre>
+  <h5>Dataset before and after</h5>
+  <p>Unchanged. This operation provisions resources and uploads code.</p>
+
+
+  <h3>Start execution</h3>
   <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+  <p><code>run_pipeline.py</code> starts a run and prints its execution ARN. The command exits while the jobs continue in AWS.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>Each run receives an execution ID. It uses the configuration already registered by Terraform.</p>
+  <h5>S3 layout after the step</h5>
+  <p>No S3 reads or writes by the launcher.</p>
+  <h5>Dataset before and after</h5>
+  <p>Unchanged.</p>
 
-  <h3>Infrastructure versus execution</h3>
-  <p><code>terraform apply</code> in <code>pipeline/</code> uploads four Python files to S3 and creates or updates the Feature Group, model package group and pipeline definition together. The definition is written once in <code>definition.tf</code>; Terraform converts it to JSON. There is no generator, copied JSON template, separate train-model stack or second Feature Store stack.</p>
-  <p><code>run_pipeline.py</code> starts an execution and prints its ARN. The jobs run in AWS and continue after the local command exits. Applying Terraform does not start a run; starting a run does not reapply Terraform.</p>
 
-  <h3>Preprocessing</h3>
+  <h3>Preprocess</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
   <ol>
     <li>Read <code>curated/cell2cell/{CURATED_VERSION}/split=train/</code> directly. The Athena training view is not used.</li>
     <li>Assign customers deterministically to approximately 70% training, 15% validation and 15% test, separately within each class. A customer must occur once. The fixed seed is 540.</li>
@@ -36,602 +66,201 @@
   </ol>
   <p>Unseen ServiceArea values map to zero; unseen one-hot categories produce all zeros. Entirely missing numeric training columns use zero instead of a median. No probability recalibration is fitted here; the saved factor is <code>1.0</code>.</p>
 
-  <h3>Feature Store ingestion</h3>
-  <p><code>ingest.py</code> waits for the group to be ready, checks its schema against the processed features, and sends every train, validation and test row through <code>PutRecord</code>. It adds the customer ID, label, split name, execution ID and event time. An ingestion error fails the step and blocks training.</p>
-  <p>A successful step means all records were accepted by the API. Delivery into offline S3 files happens later. Training reads the processed CSVs directly, so it does not wait for that delivery or query Feature Store. Repeated executions append feature history; <code>execution_id</code> distinguishes their records.</p>
 
-  <h3>Training, evaluation and registration</h3>
-  <p><code>Preprocess → IngestFeatures → Train → Evaluate → QualityGate → RegisterModel or Fail</code></p>
-  <p>Training waits for successful ingestion but reads preprocessing's CSVs directly. Validation is supplied to XGBoost to report metrics during training; this implementation uses a fixed 100 rounds and does not tune parameters. The test split is used only by evaluation.</p>
-  <p><strong>Classification threshold 0.5</strong> converts test probabilities into labels for precision, recall, F1, accuracy and the confusion matrix. <strong>AUC threshold 0.60</strong>, configured in <code>.env</code>, determines whether registration is allowed. These are different thresholds. Recalibration remains <code>1.0</code>; no cost-based threshold selection is fitted.</p>
-  <p>The registered package uses exactly the training image and artifact. Its metadata includes the S3 URI of this execution's fitted preprocessing contract. It does not provide a production approval or serving workflow.</p>
-
-  <h2>Versioned processes and outputs</h2>
-  <ul>
-    <li><code>CURATED_VERSION</code> selects the source Parquet directory.</li>
-    <li><code>PREPROCESSING_CONTRACT</code> identifies transformation rules. Each execution saves its own fitted parameters under <code>pipeline/{execution-id}/process/contract/</code>.</li>
-    <li><code>FEATURE_VERSION</code> identifies the Feature Group schema and appears in its name and offline prefix.</li>
-    <li><code>MODEL_VERSION</code> identifies the model configuration and selects <code>models/cell2cell/{version}/{execution-id}/</code>.</li>
-  </ul>
-  <p>These values come from exported <code>TF_VAR_*</code> settings and are embedded when Terraform updates the pipeline. Reloading <code>.env</code> alone does not change the registered definition. SageMaker assigns a separate numeric package version on successful registration.</p>
-  <p>Before a run, infrastructure exists but the execution's outputs do not. After success, it has processed splits, fitted parameters, accepted feature records, a model, an evaluation report and a pending package. A failed AUC gate retains outputs but creates no package. SageMaker records execution status; there is no additional manifest.</p>
-
-  <h2>S3 layout after the stage</h2>
-  <p>Green = added; orange = updated on apply. Reads leave existing files unchanged. Do not apply code changes while an execution is using the shared code prefix.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p><code>CURATED_VERSION</code> selects the input directory. <code>PREPROCESSING_CONTRACT</code> identifies the transformation rules; fitted values are saved separately for each execution.</p>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
-├─ curated/cell2cell/v1/
-│  ├─ split=train/                         [READ by preprocessing]
-│  └─ split=holdout/                       untouched
-├─ pipeline/
-<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  ├─ code/                                [WRITE on apply; READ by jobs]
-│  │  ├─ preprocess.py
-│  │  ├─ process.py
-│  │  ├─ ingest.py
-│  │  └─ evaluate.py</span>
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ {execution-id}/                      [ADDED per execution]
-│     ├─ process/
-│     │  ├─ train/train.csv                [WRITE; READ by ingestion and training]
-│     │  ├─ validation/validation.csv      [WRITE; READ by ingestion and training]
-│     │  ├─ test/test.csv                  [WRITE; READ by ingestion and evaluation]
-│     │  ├─ identifiers/                   [WRITE; READ by ingestion]
-│     │  └─ contract/preprocessing_parameters.json
-│     │                                    [WRITE; READ by ingestion; URI in package]
-│     └─ feature-store/ingestion.json      [WRITE] accepted-record counts</span>
-├─ models/cell2cell/v1/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ {execution-id}/                      [ADDED per execution]
-│     ├─ &lt;training-job-name&gt;/output/model.tar.gz
-│     │                                    [WRITE; READ by evaluation; URI in package]
-│     └─ evaluation/evaluation.json        [WRITE; READ by gate; URI in package]</span>
-└─ …                                       unrelated contents collapsed
+├─ curated/cell2cell/{curated-version}/
+│  ├─ split=train/                     [READ]
+│  └─ split=holdout/                   untouched
+├─ pipeline/{execution-id}/
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ process/                         [WRITE + ADDED]
+│     ├─ train/train.csv
+│     ├─ validation/validation.csv
+│     ├─ test/test.csv
+│     ├─ identifiers/                  IDs for each split
+│     └─ contract/preprocessing_parameters.json</span>
+└─ …</pre>
+  <h5>Dataset before and after</h5>
+  <p>The labeled pool becomes approximately 70% train, 15% validation and 15% test. The unlabeled holdout stays untouched. Orange = transformed, red = excluded from model inputs, green = added. IDs are retained in separate files and the label is the first CSV column.</p>
+  <div class="overflowBlock" style="overflow-x: auto;">
+    <table class="tg" style="min-width: 1000px;">
+      <thead><tr><th>Column</th><th>Curated input</th><th>After preprocessing</th></tr></thead>
+      <tbody>
+        <tr><td><code>customerid</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded; separate identifiers CSV</td></tr>
+        <tr><td><code>churn</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td></tr>
+        <tr><td><code>monthlyrevenue</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>monthlyminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>totalrecurringcharge</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>directorassistedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>overageminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>roamingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>percchangeminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>percchangerevenues</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>droppedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>blockedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>unansweredcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>customercarecalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>threewaycalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>receivedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>outboundcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>inboundcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>peakcallsinout</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>offpeakcallsinout</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>droppedblockedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>callforwardingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>callwaitingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>monthsinservice</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>uniquesubs</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>activesubs</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>servicearea</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;">servicearea — training frequency</td></tr>
+        <tr><td><code>handsets</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>handsetmodels</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>currentequipmentdays</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>agehh1</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td></tr>
+        <tr><td><code>agehh2</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td></tr>
+        <tr><td><code>childreninhh</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>childreninhh__yes</code></td></tr>
+        <tr><td><code>handsetrefurbished</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>handsetrefurbished__yes</code></td></tr>
+        <tr><td><code>handsetwebcapable</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>handsetwebcapable__yes</code></td></tr>
+        <tr><td><code>truckowner</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>truckowner__yes</code></td></tr>
+        <tr><td><code>rvowner</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>rvowner__yes</code></td></tr>
+        <tr><td><code>homeownership</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>homeownership__unknown</code></td></tr>
+        <tr><td><code>buysviamailorder</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>buysviamailorder__yes</code></td></tr>
+        <tr><td><code>respondstomailoffers</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>respondstomailoffers__yes</code></td></tr>
+        <tr><td><code>optoutmailings</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>optoutmailings__yes</code></td></tr>
+        <tr><td><code>nonustravel</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>nonustravel__yes</code></td></tr>
+        <tr><td><code>ownscomputer</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>ownscomputer__yes</code></td></tr>
+        <tr><td><code>hascreditcard</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>hascreditcard__yes</code></td></tr>
+        <tr><td><code>retentioncalls</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td></tr>
+        <tr><td><code>retentionoffersaccepted</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td></tr>
+        <tr><td><code>newcellphoneuser</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>newcellphoneuser__yes</code></td></tr>
+        <tr><td><code>notnewcellphoneuser</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>notnewcellphoneuser__yes</code></td></tr>
+        <tr><td><code>referralsmadebysubscriber</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>incomegroup</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>ownsmotorcycle</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>ownsmotorcycle__yes</code></td></tr>
+        <tr><td><code>adjustmentstocreditrating</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>handsetprice</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td></tr>
+        <tr><td><code>madecalltoretentionteam</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td></tr>
+        <tr><td><code>creditrating</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>creditrating__2_high</code><br /><code>creditrating__3_good</code><br /><code>creditrating__4_medium</code><br /><code>creditrating__5_low</code><br /><code>creditrating__6_verylow</code><br /><code>creditrating__7_lowest</code></td></tr>
+        <tr><td><code>prizmcode</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>prizmcode__rural</code><br /><code>prizmcode__suburban</code><br /><code>prizmcode__town</code></td></tr>
+        <tr><td><code>occupation</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>occupation__crafts</code><br /><code>occupation__homemaker</code><br /><code>occupation__other</code><br /><code>occupation__professional</code><br /><code>occupation__retired</code><br /><code>occupation__self</code><br /><code>occupation__student</code></td></tr>
+        <tr><td><code>maritalstatus</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>maritalstatus__unknown</code><br /><code>maritalstatus__yes</code></td></tr>
+        <tr><td><code>churn_label</code></td><td>INTEGER</td><td style="background-color: #fff3e0; color: #8a4500;">First CSV column; target, not a feature</td></tr>
+        <tr><td><code>split</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td></tr>
+        <tr><td><code>age_unknown</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if either age was zero</td></tr>
+        <tr><td><code>handsetprice_unknown</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if price was missing</td></tr>
+        <tr><td><code>usage_record_missing</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if all six usage fields were missing</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <h3>Ingest features</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
+  <p><code>ingest.py</code> checks group readiness and schema, then sends every processed row through <code>PutRecord</code>. Any ingestion failure blocks training. Successful ingestion means API acceptance; offline S3 delivery happens asynchronously.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p><code>FEATURE_VERSION</code> selects the group and offline prefix. Records carry the execution ID and event time. If emitted fields change, regenerate <code>pipeline/schema.json</code> and bump the feature version before applying Terraform.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/{execution-id}/
+│  ├─ process/                         [READ] splits, IDs and contract
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ feature-store/ingestion.json      [WRITE + ADDED] accepted-record counts</span>
+└─ …
 
 s3://sagemaker-us-east-1-702238036392/
-└─ features/churn-rebuild/cell2cell/v1/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   └─ &lt;AWS-generated group and date folders&gt;/
-      └─ &lt;Parquet files&gt;                  [WRITE + ADDED] asynchronous delivery</span></pre>
-  <p>Code files are added on first apply and updated when changed. SageMaker adds account, region, group and time folders beneath the offline prefix; <code>ingestion.json</code> records the resolved location. The existing lab bucket holds rebuildable features, following the team implementation. No new bucket is created.</p>
-  <p>Model packages and execution records are SageMaker resources, not S3 folders. Training may also write AWS diagnostic artifacts under its output prefix.</p>
+├─ features/churn-rebuild/cell2cell/{feature-version}/
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;AWS-generated folders&gt;/
+│     └─ &lt;Parquet files&gt;               [WRITE + ADDED] asynchronous delivery</span>
+└─ …</pre>
+  <h5>Dataset before and after</h5>
+  <p>Feature values and split membership are unchanged. Records are appended to the offline store with the fields below. Training subsequently reads the CSVs directly.</p>
+  <div class="overflowBlock"><table class="tg">
+    <thead><tr><th>Fields</th><th>Before ingestion</th><th>Offline record</th></tr></thead>
+    <tbody>
+      <tr><td>Model features</td><td>Processed CSV columns</td><td>Same values, stored as Fractional fields</td></tr>
+      <tr><td>customerid</td><td>Separate identifiers file</td><td>Integral record identifier</td></tr>
+      <tr><td>churn_label</td><td>First CSV column</td><td>Integral label</td></tr>
+      <tr><td>split_name</td><td>Identified by CSV file</td><td style="background-color: #e8f5e9; color: #1b5e20;">Added: train, validation or test</td></tr>
+      <tr><td>event_time</td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">Added: ingestion timestamp</td></tr>
+      <tr><td>execution_id</td><td>Pipeline execution</td><td style="background-color: #e8f5e9; color: #1b5e20;">Added to each record</td></tr>
+      <tr><td>write_time, api_invocation_time, is_deleted</td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">Added by AWS to offline records</td></tr>
+    </tbody>
+  </table></div>
 
-  <h2>Dataset before and after</h2>
-  <p>The pipeline starts with curated labeled data and produces numeric train/validation/test splits. Training and evaluation read those splits without changing them. The unlabeled holdout remains untouched.</p>
-  <div class="overflowBlock">
-    <table class="tg">
-      <thead>
-        <tr>
-          <th>Property</th>
-          <th>Before</th>
-          <th>After</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Rows</td>
-          <td>Curated labeled pool</td>
-          <td>Same rows, assigned to train/validation/test; no sampling limit on ingestion.</td>
-        </tr>
-        <tr>
-          <td>Unlabeled holdout</td>
-          <td>Separate curated partition</td>
-          <td>Untouched and excluded from fitting, training and evaluation.</td>
-        </tr>
-        <tr>
-          <td>Model inputs</td>
-          <td>Mixed numeric and categorical columns</td>
-          <td>Numeric features in fitted contract order. Label first; no header or customer ID in CSV.</td>
-        </tr>
-        <tr>
-          <td>Feature Store</td>
-          <td>Empty group on first run, or earlier records</td>
-          <td>Same feature values plus five record fields. AWS adds write_time, api_invocation_time and is_deleted to offline storage.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  <h3>Column comparison</h3>
-  <p>Orange = transformed; red = excluded from model inputs; green = added. Customer IDs and labels are retained separately. One-hot field names below reflect the checked-in schema; fitted category levels determine the actual output, which must match that schema.</p>
-  <div class="overflowBlock" style="overflow-x: auto;">
-    <table class="tg" style="min-width: 1350px;">
-      <thead>
-        <tr>
-          <th>Source column</th>
-          <th>Curated table</th>
-          <th>Processed model input</th>
-          <th>Feature Store record</th>
-          <th>Training / evaluation use</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>customerid</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded; separate identifiers CSV</td>
-          <td>Integral record identifier</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>churn</code></td>
-          <td>STRING</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded</td>
-          <td>Not ingested</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>monthlyrevenue</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>monthlyminutes</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>totalrecurringcharge</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>directorassistedcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>overageminutes</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>roamingcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>percchangeminutes</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>percchangerevenues</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>droppedcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>blockedcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>unansweredcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>customercarecalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>threewaycalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>receivedcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>outboundcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>inboundcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>peakcallsinout</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>offpeakcallsinout</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>droppedblockedcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>callforwardingcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>callwaitingcalls</code></td>
-          <td>DOUBLE</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>monthsinservice</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>uniquesubs</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>activesubs</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>servicearea</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">servicearea — training frequency</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsets</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsetmodels</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>currentequipmentdays</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>agehh1</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>agehh2</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>childreninhh</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>childreninhh__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsetrefurbished</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>handsetrefurbished__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsetwebcapable</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>handsetwebcapable__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>truckowner</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>truckowner__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>rvowner</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>rvowner__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>homeownership</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>homeownership__unknown</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>buysviamailorder</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>buysviamailorder__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>respondstomailoffers</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>respondstomailoffers__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>optoutmailings</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>optoutmailings__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>nonustravel</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>nonustravel__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>ownscomputer</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>ownscomputer__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>hascreditcard</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>hascreditcard__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>retentioncalls</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded</td>
-          <td>Not ingested</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>retentionoffersaccepted</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded</td>
-          <td>Not ingested</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>newcellphoneuser</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>newcellphoneuser__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>notnewcellphoneuser</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>notnewcellphoneuser__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>referralsmadebysubscriber</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>incomegroup</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>ownsmotorcycle</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>ownsmotorcycle__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>adjustmentstocreditrating</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsetprice</code></td>
-          <td>BIGINT</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td>
-          <td>Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>madecalltoretentionteam</code></td>
-          <td>STRING</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded</td>
-          <td>Not ingested</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>creditrating</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>creditrating__2_high</code><br /><code>creditrating__3_good</code><br /><code>creditrating__4_medium</code><br /><code>creditrating__5_low</code><br /><code>creditrating__6_verylow</code><br /><code>creditrating__7_lowest</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>prizmcode</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>prizmcode__rural</code><br /><code>prizmcode__suburban</code><br /><code>prizmcode__town</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>occupation</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>occupation__crafts</code><br /><code>occupation__homemaker</code><br /><code>occupation__other</code><br /><code>occupation__professional</code><br /><code>occupation__retired</code><br /><code>occupation__self</code><br /><code>occupation__student</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>maritalstatus</code></td>
-          <td>STRING</td>
-          <td style="background-color: #fff3e0; color: #8a4500;"><code>maritalstatus__unknown</code><br /><code>maritalstatus__yes</code></td>
-          <td>Fractional one-hot indicators</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>churn_label</code></td>
-          <td>INTEGER</td>
-          <td style="background-color: #fff3e0; color: #8a4500;">First CSV column; target, not a feature</td>
-          <td>Integral label</td>
-          <td>Target label; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>split</code></td>
-          <td>STRING</td>
-          <td style="background-color: #ffebee; color: #b71c1c;">Excluded</td>
-          <td>Not ingested</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>age_unknown</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">1 if either age was zero</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>handsetprice_unknown</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">1 if price was missing</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>usage_record_missing</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">1 if all six usage fields were missing</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td>
-          <td>Processed numeric features; unchanged</td>
-        </tr>
-        <tr>
-          <td><code>split_name</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">String: train / validation / test</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>event_time</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Fractional: ingestion timestamp</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-        <tr>
-          <td><code>execution_id</code></td>
-          <td>—</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td>
-          <td style="background-color: #e8f5e9; color: #1b5e20;">String: pipeline execution ID</td>
-          <td>Excluded from model inputs</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+  <h3>Train</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_4.md"></diagram-widget>
+  <p>XGBoost fits on the training CSV for 100 rounds. The validation CSV supplies training-time metrics. Training begins only after ingestion succeeds.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p><code>MODEL_VERSION</code> identifies the model configuration. The execution ID separates its artifact from other runs.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/{execution-id}/process/
+│  ├─ train/train.csv                  [READ]
+│  ├─ validation/validation.csv        [READ]
+│  └─ …
+├─ models/cell2cell/{model-version}/{execution-id}/
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;training-job-name&gt;/output/model.tar.gz [WRITE + ADDED]</span>
+└─ …</pre>
+  <h5>Dataset before and after</h5>
+  <p>No rows or columns change. The label is the target; numeric feature columns are the inputs. Test and holdout data are not read.</p>
 
-  <h2>Run from the repository root</h2>
-  <p>Prerequisites: stage 1 has produced curated Parquet; Learner Lab credentials are current; the existing SageMaker bucket named in <code>TF_VAR_offline_store_bucket</code> exists; <code>LabRole</code> can access both buckets and SageMaker. No bucket or IAM role is created here. The configured XGBoost image is for <code>us-east-1</code>.</p>
-  <pre class="overflowBlock"><code>set -a
-source .env
-set +a
-uv sync
-terraform -chdir=pipeline init
-terraform -chdir=pipeline plan
-terraform -chdir=pipeline apply
-uv run python pipeline/run_pipeline.py</code></pre>
-  <p>Review the plan before applying. <code>uv sync</code> updates the dependency lock normally. For another model run, repeat only the last command. In SageMaker Studio, open Pipelines → <code>churn-rebuild-pipeline</code> to see the DAG and step results. Registered candidates are under model package group <code>churn-rebuild-models</code>.</p>
-  <p>Processing and training compute stop when their jobs finish. The Feature Group, model package group, pipeline definition and S3 files remain. No endpoint is deployed.</p>
-  <p><strong>Implementation status:</strong> authored but not executed or validated against AWS. No Terraform, training, ingestion or tests have been run for this implementation.</p>
-  <h2>Files and operation</h2>
-  <p><code>preprocess.py</code> contains the transformation; <code>process.py</code> reads and writes job files; <code>ingest.py</code> sends records. The pipeline calls these files directly. There is no second ingestion path.</p>
-  <h3>When the feature schema changes</h3>
-  <p>The checked-in <code>pipeline/schema.json</code> starts from the team's existing 70-feature schema. All model features are stored as Fractional values to preserve median-imputed values; five additional fields describe each record. If preprocessing changes the emitted fields, regenerate the schema from real curated data and bump <code>FEATURE_VERSION</code> before applying Terraform. The ingestion step rejects a mismatch rather than silently dropping fields.</p>
-  <p>The Feature Group persists across runs. Bumping the feature version changes its name and replaces the group managed by Terraform; its old offline S3 files remain.</p>
 
-  <p>From the repository root, with <code>.env</code> exported, download the actual curated labeled files and regenerate the schema. These are real data operations, not tests. Then bump <code>TF_VAR_feature_version</code> in <code>.env</code>, reload it, and review the pipeline Terraform plan.</p>
-  <pre class="overflowBlock"><code>uv sync
-aws s3 cp "s3://${TF_VAR_output_bucket}/curated/cell2cell/${TF_VAR_curated_version}/split=train/" data/schema-input/ --recursive
-uv run python pipeline/generate_schema.py --curated-directory data/schema-input</code></pre>
-  <p>Use an empty local input directory for a new curated version so old files are not mixed in. The initial schema is carried from the team implementation; it has not been regenerated or executed in this repo yet.</p>
+  <h3>Evaluate</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_5.md"></diagram-widget>
+  <p>The model predicts probabilities for the test split. Evaluation reports AUC and uses a classification threshold of <code>0.5</code> for precision, recall, F1, accuracy and the confusion matrix. Recalibration is <code>1.0</code>, meaning no adjustment.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>The evaluation report belongs to the same model version and execution as the trained artifact.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/{execution-id}/process/test/test.csv [READ]
+├─ models/cell2cell/{model-version}/{execution-id}/
+│  ├─ &lt;training-job-name&gt;/output/model.tar.gz   [READ]
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ evaluation/evaluation.json               [WRITE + ADDED]</span>
+└─ …</pre>
+  <h5>Dataset before and after</h5>
+  <p>The test rows and columns remain unchanged. The output is a metrics report; no transformed dataset is created.</p>
+
+
+  <h3>Quality gate</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_6.md"></diagram-widget>
+  <p>The gate compares test AUC with <code>TF_VAR_auc_threshold</code>, currently <code>0.60</code>. Passing permits registration; failing ends the execution without registering a package. This is separate from the <code>0.5</code> classification threshold used in evaluation.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>No new artifact version is created. The pass/fail result is recorded in the pipeline execution.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ models/cell2cell/{model-version}/{execution-id}/
+│  └─ evaluation/evaluation.json       [READ]
+└─ …</pre>
+  <p>No S3 writes. Existing artifacts remain if the gate fails.</p>
+  <h5>Dataset before and after</h5>
+  <p>Unchanged; the gate reads a metric, not dataset rows.</p>
+
+
+  <h3>Register model</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_7.md"></diagram-widget>
+  <p>A passing model is registered as <code>PendingManualApproval</code>. The package references the trained artifact, its inference image, the evaluation report and the fitted preprocessing parameters. Registration does not approve or deploy the model.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>SageMaker adds a numeric package version to the model package group. That number is independent of <code>MODEL_VERSION</code>.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/{execution-id}/process/contract/
+│  └─ preprocessing_parameters.json    [REFERENCED by package]
+├─ models/cell2cell/{model-version}/{execution-id}/
+│  ├─ &lt;training-job-name&gt;/output/model.tar.gz [REFERENCED by package]
+│  └─ evaluation/evaluation.json       [REFERENCED by package]
+└─ …</pre>
+  <p>No new S3 files. The new package is a SageMaker registry entry.</p>
+  <h5>Dataset before and after</h5>
+  <p>Unchanged. No dataset is read or rewritten.</p>
+
 
 </body>
-
 </html>

@@ -14,11 +14,13 @@ sequenceDiagram
     box Storage
         participant S3 as S3 storage
     end
-    Note over Operator,S3: Start execution
-    Note over Operator: Operator starts a model run
-    Operator->>Launcher: run
-    Launcher->>Pipeline: start execution
-    Pipeline-->>Launcher: execution ARN
-    Launcher-->>Operator: print ARN and exit
-    Note over Pipeline: Execution running in AWS
+    Note over Operator,S3: Quality gate
+    Note over Pipeline: Evaluation succeeded
+    Pipeline->>S3: read evaluation report
+    S3-->>Pipeline: test AUC
+    alt AUC meets configured minimum
+        Note over Pipeline: Continue to model registration
+    else AUC below configured minimum
+        Note over Pipeline: Execution fails; no package registered
+    end
 ```

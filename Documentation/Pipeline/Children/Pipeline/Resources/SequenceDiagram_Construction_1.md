@@ -12,7 +12,7 @@ sequenceDiagram
         participant Registry as Model package group
     end
     box Storage
-        participant S3
+        participant S3 as S3 storage
     end
     Note over Operator,S3: Provision pipeline infrastructure
     Note over Operator: Curated Parquet, buckets and LabRole already exist

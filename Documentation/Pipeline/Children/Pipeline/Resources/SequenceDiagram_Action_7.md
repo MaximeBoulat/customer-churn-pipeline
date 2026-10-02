@@ -14,11 +14,9 @@ sequenceDiagram
     box Storage
         participant S3 as S3 storage
     end
-    Note over Operator,S3: Start execution
-    Note over Operator: Operator starts a model run
-    Operator->>Launcher: run
-    Launcher->>Pipeline: start execution
-    Pipeline-->>Launcher: execution ARN
-    Launcher-->>Operator: print ARN and exit
-    Note over Pipeline: Execution running in AWS
+    Note over Operator,S3: Register model
+    Note over Pipeline: Quality gate passed
+    Pipeline->>Registry: register model and image with evaluation and preprocessing references
+    Registry-->>Pipeline: package version
+    Note over Registry: Candidate has PendingManualApproval status
 ```

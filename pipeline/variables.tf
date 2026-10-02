@@ -30,10 +30,6 @@ variable "execution_role_name" {
   type        = string
   description = "Existing SageMaker execution role; use LabRole in Learner Lab."
 }
-variable "xgboost_image" {
-  type        = string
-  description = "Same AWS XGBoost 1.7 image for processing, training, evaluation and registered inference."
-}
 variable "instance_type" {
   type = string
 }

@@ -1,5 +1,8 @@
 # This is the only pipeline definition. Terraform encodes it as AWS's JSON DAG.
 locals {
+  # Pinned implementation dependency; shared by processing, training and inference.
+  xgboost_image = "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-xgboost:1.7-1"
+
   execution_id = { Get = "Execution.PipelineExecutionId" }
   run_path = {
     "Std:Join" = {
@@ -71,7 +74,7 @@ locals {
         Type = "Processing"
         Arguments = merge(local.processing_base, {
           AppSpecification = {
-            ImageUri            = var.xgboost_image
+            ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/process.py"]
             ContainerArguments  = ["--preprocessing-version", var.preprocessing_contract, "--curated-version", var.curated_version, "--feature-version", var.feature_version]
           }
@@ -93,7 +96,7 @@ locals {
         Type = "Processing"
         Arguments = merge(local.processing_base, {
           AppSpecification = {
-            ImageUri            = var.xgboost_image
+            ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/ingest.py"]
             ContainerArguments  = ["--feature-group", aws_sagemaker_feature_group.features.feature_group_name, "--region", var.region, "--execution-id", local.execution_id]
           }
@@ -114,7 +117,7 @@ locals {
         DependsOn = ["IngestFeatures"]
         Arguments = {
           RoleArn                = data.aws_iam_role.execution.arn
-          AlgorithmSpecification = { TrainingImage = var.xgboost_image, TrainingInputMode = "File" }
+          AlgorithmSpecification = { TrainingImage = local.xgboost_image, TrainingInputMode = "File" }
           ResourceConfig         = { InstanceType = var.instance_type, InstanceCount = 1, VolumeSizeInGB = 30 }
           StoppingCondition      = { MaxRuntimeInSeconds = 3600 }
           OutputDataConfig       = { S3OutputPath = local.model_path }
@@ -139,7 +142,7 @@ locals {
         Type = "Processing"
         Arguments = merge(local.processing_base, {
           AppSpecification = {
-            ImageUri            = var.xgboost_image
+            ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/evaluate.py"]
           }
           ProcessingInputs = [local.code_input, local.process_inputs.test, {
@@ -193,7 +196,7 @@ locals {
                 model_version         = var.model_version
               }
               InferenceSpecification = {
-                Containers = [{ Image = var.xgboost_image, ModelDataUrl = { Get = "Steps.Train.ModelArtifacts.S3ModelArtifacts" } }]
+                Containers = [{ Image = local.xgboost_image, ModelDataUrl = { Get = "Steps.Train.ModelArtifacts.S3ModelArtifacts" } }]
                 SupportedContentTypes              = ["text/csv"]
                 SupportedResponseMIMETypes          = ["text/csv"]
                 SupportedTransformInstanceTypes    = [var.instance_type]

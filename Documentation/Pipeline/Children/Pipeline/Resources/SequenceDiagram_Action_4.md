@@ -14,11 +14,13 @@ sequenceDiagram
     box Storage
         participant S3 as S3 storage
     end
-    Note over Operator,S3: Start execution
-    Note over Operator: Operator starts a model run
-    Operator->>Launcher: run
-    Launcher->>Pipeline: start execution
-    Pipeline-->>Launcher: execution ARN
-    Launcher-->>Operator: print ARN and exit
-    Note over Pipeline: Execution running in AWS
+    Note over Operator,S3: Train
+    Note over Pipeline: Ingestion succeeded
+    Pipeline->>Jobs: start XGBoost training
+    Jobs->>S3: read train and validation CSVs
+    S3-->>Jobs: labeled model inputs
+    Note over Jobs: Fit model for 100 rounds
+    Jobs->>S3: write trained model artifact
+    Jobs-->>Pipeline: training succeeded and artifact location
+    Note over Pipeline: Model ready for evaluation
 ```
