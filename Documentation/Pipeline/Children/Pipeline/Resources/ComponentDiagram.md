@@ -5,7 +5,7 @@ flowchart TB
         Operator["Operator"]
         Terraform["Terraform<br/>pipeline/main.tf and definition.tf"]
         Launcher["run_pipeline.py"]
-    end 
+    end  
     subgraph AWS["AWS — Learner Lab"]
         Pipeline["SageMaker pipeline"]
         Preparation["Preprocessing and ingestion jobs"]

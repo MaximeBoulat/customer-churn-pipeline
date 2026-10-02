@@ -5,7 +5,7 @@ sequenceDiagram
         participant Terraform
         participant Launcher as run_pipeline.py
     end
-    box AWS
+    box AWS 
         participant Pipeline as SageMaker pipeline
         participant Jobs as Processing and training jobs
         participant Group as Feature Group
@@ -21,6 +21,6 @@ sequenceDiagram
     alt AUC meets configured minimum
         Note over Pipeline: Continue to model registration
     else AUC below configured minimum
-        Note over Pipeline: Execution fails; no package registered
+        Note over Pipeline: Execution fails - no package registered
     end
 ```

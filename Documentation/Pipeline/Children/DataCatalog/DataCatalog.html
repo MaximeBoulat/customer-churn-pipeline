@@ -13,11 +13,13 @@
 
   <p>The data catalog stage registers the raw cell2cell CSV in Glue, then uses Athena to curate it into a typed, partitioned Parquet table and a training-ready view. It is a one-shot batch construction: once curated, the raw table is never read again.</p>
 
-  <h2>Component diagram</h2>
+  <h2>Component analysis</h2>
+
+  <h3>Diagram</h3>
 
   <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
 
-  <h2>Key AWS actors and concepts</h2>
+  <h3>Key AWS actors and concepts</h3>
 
   <p><strong>Glue</strong> manages the database, table, and view definitions. <strong>Athena</strong> is the SQL query engine that uses those definitions to read and process the data stored in <strong>S3</strong>.</p>
 
@@ -32,7 +34,13 @@
       ├─ cell2cell_curated        table over curated Parquet
       └─ vw_cell2cell_training    saved query over the curated table</pre>
 
-  <h2>Sequence diagram</h2>
+  <h2>Sequence analysis</h2>
+
+  <h3>Provision and curate data</h3>
+
+  <h4>Overview</h4>
+
+  <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
 
   <ol>
     <li>Terraform creates the Glue database (the catalog namespace).</li>
@@ -44,9 +52,8 @@
     <li><code>run_curation.py</code> submits <code>02_create_view.sql</code>, which creates <code>vw_cell2cell_training</code> &mdash; a view over <code>cell2cell_curated</code> filtered to <code>split = 'train'</code> with a non-null <code>churn_label</code>.</li>
   </ol>
 
-  <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
 
-  <h3>Why materialize to Parquet instead of querying the raw CSV directly</h3>
+  <h5>Why materialize to Parquet instead of querying the raw CSV directly</h5>
 
   <p>Athena bills by bytes scanned per query. <code>OpenCSVSerde</code> reads full rows as uncompressed text with no partition pruning, so every query against <code>cell2cell_raw</code> scans the entire raw CSV. Snappy-compressed, partitioned Parquet reduces the bytes scanned per query, which lowers both cost and latency &mdash; this is the performance gain.</p>
 
@@ -54,7 +61,9 @@
 
   <p>A view is also not materialized: every query against it would re-read the raw CSV and re-run its SELECT logic, including the casts and the derived <code>churn_label</code>/<code>split</code> columns, on every call. CTAS turns that recurring per-query cost into a one-time cost paid once, at curation time, instead of on every downstream query.</p>
 
-  <h2>Versioned processes and outputs</h2>
+  <h4>Artifacts and effects analysis</h4>
+
+  <h5>Versioned processes and outputs</h5>
 
   <p><code>CURATED_VERSION</code> identifies the schema version of both the external table over the raw CSVs and the CTAS that produces the curated dataset. When those schemas change, the version is bumped and the curated output goes into the corresponding S3 folder: <code>curated/cell2cell/{version}/</code>.</p>
 
@@ -63,7 +72,7 @@
     <p>The versioning plan therefore needs a catalog-update procedure, which is not implemented yet. One approach is to keep stable table names, update the raw schema, and recreate the curated table's catalog definition for the new version while retaining the old Parquet under <code>v1/</code>.</p>
   </blockquote>
 
-  <h2>S3 layout after the stage</h2>
+  <h4>S3 layout after the step</h4>
 
   <p>This diagram shows the resulting layout and changes made by a successful first run, rather than a live bucket inventory. Unrelated contents are collapsed. <strong>[READ]</strong> and <strong>[WRITE]</strong> identify access; color identifies change: <span style="background-color: #e8f5e9; color: #1b5e20;">green = added</span>, <span style="background-color: #fff3e0; color: #8a4500;">orange = modified</span>, <span style="background-color: #ffebee; color: #b71c1c;">red = removed</span>. This stage adds objects; it does not modify or delete the source objects.</p>
 
@@ -80,22 +89,22 @@
 s3://customer-churn-pipeline-a81b79/
 ├─ curated/
 │  └─ cell2cell/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│     └─ v1/                    [ADDED] selected by CURATED_VERSION
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│     └─ v1/                    selected by CURATED_VERSION
 │        ├─ split=train/
-│        │  └─ &lt;generated files&gt; [WRITE + ADDED] labeled Parquet
+│        │  └─ &lt;generated files&gt; [WRITE] labeled Parquet
 │        └─ split=holdout/
-│           └─ &lt;generated files&gt; [WRITE + ADDED] unlabeled Parquet</span>
+│           └─ &lt;generated files&gt; [WRITE] unlabeled Parquet</span>
 ├─ athena-results/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  ├─ &lt;query result objects&gt;     [WRITE + ADDED] query results
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  ├─ &lt;query result objects&gt;     [WRITE] query results
 │  └─ tables/
-│     └─ &lt;query metadata&gt;        [WRITE + ADDED] CTAS manifest and metadata</span>
+│     └─ &lt;query metadata&gt;        [WRITE] CTAS manifest and metadata</span>
 └─ …                            existing unrelated contents collapsed</pre>
 
   <p>Athena generates the Parquet object names and file count; files need not have a <code>.parquet</code> extension. The training view is stored as a Glue catalog definition, not as another S3 dataset. Terraform configures locations but does not write these data objects. Local Terraform state is outside this S3 diagram.</p>
 
-  <h2>Dataset before and after</h2>
+  <h4>Dataset before and after</h4>
 
-  <h3>Rows and partitions</h3>
+  <h5>Rows and partitions</h5>
 
   <div class="overflowBlock">
     <table class="tg">
@@ -110,7 +119,7 @@ s3://customer-churn-pipeline-a81b79/
     </table>
   </div>
 
-  <h3>Column comparison</h3>
+  <h5>Column comparison</h5>
 
   <p>One row per column, one comparison column per dataset state. Future stages can extend the comparison horizontally using the same column names and change colors. Colors describe the change from the immediately preceding dataset state. Orange includes value normalization even when the type stays <code>STRING</code>; red here means excluded from the view, not deleted from Parquet.</p>
 
