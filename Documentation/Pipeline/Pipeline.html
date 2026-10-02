@@ -148,132 +148,69 @@
 
   <p>Example:</p>
 
-  <pre class="overflowBlock"><code>s3://aai-540-group-2/
-  ├─ raw/
-  │ └─ cell2cell/
-  │ ├─ cell2celltrain.csv
-  │ ├─ cell2cellholdout.csv
-  │ └─ provenance.json
-  │
-  ├─ curated/
-  │ └─ cell2cell/v1/
-  │ ├─ split=train/
-  │ │ └─ &lt;Parquet file&gt;
-  │ └─ split=holdout/
-  │ └─ &lt;Parquet file&gt;
-  │
-  ├─ preprocessing/
-  │ └─ cell2cell/v1/
-  │ └─ preprocessing_parameters.json
-  │
-  ├─ pipeline/
-  │ ├─ code/steps/
-  │ │ ├─ cell2cell_features.json
-  │ │ ├─ config.py
-  │ │ ├─ evaluate.py
-  │ │ ├─ evaluation.py
-  │ │ ├─ feature_store.py
-  │ │ ├─ feature_store_schema.py
-  │ │ ├─ manifest.py
-  │ │ ├─ preprocess.py
-  │ │ ├─ process.py
-  │ │ └─ stage_manifest.py
-  │ │
-  │ ├─ &lt;05l81yyxliar | 7gl6rlh4pymc | h1hr8su33v5d&gt;/
-  │ │ ├─ execution_manifest.json
-  │ │ ├─ feature-store/
-  │ │ │ └─ feature_store.json
-  │ │ └─ process/
-  │ │ ├─ contract/
-  │ │ │ └─ preprocessing_parameters.json
-  │ │ ├─ identifiers/
-  │ │ │ ├─ train.csv
-  │ │ │ ├─ validation.csv
-  │ │ │ └─ test.csv
-  │ │ ├─ train/train.csv
-  │ │ ├─ validation/validation.csv
-  │ │ └─ test/test.csv
-  │ │
-  │ ├─ pp2pmvd249bs/
-  │ │ ├─ execution_manifest.json
-  │ │ └─ process/
-  │ │ └─ … ← Same preprocessing file layout
-  │ │
-  │ ├─ 20260916T023521Z/
-  │ │ ├─ fitted_preprocess.json
-  │ │ └─ input/
-  │ │ ├─ train.csv
-  │ │ └─ validation.csv
-  │ │
-  │ └─ &lt;20260921T203158Z | 20260924T223912Z | 20260924T230137Z&gt;/
-  │   └─ execution_manifest.json
-  │
-  ├─ models/
-  │ └─ cell2cell/
-  │ ├─ approvals/cell2cell-churn/
-  │ │ ├─ package-1/
-  │ │ │ ├─ approved_contract.json
-  │ │ │ ├─ evaluation.json
-  │ │ │ ├─ model.tar.gz
-  │ │ │ └─ preprocessing_parameters.json
-  │ │ └─ 05l81yyxliar/package-1/
-  │ │ ├─ approved_contract.json
-  │ │ ├─ evaluation.json
-  │ │ ├─ model.tar.gz
-  │ │ └─ preprocessing_parameters.json
-  │ │
-  │ └─ v1/
-  │ ├─ &lt;05l81yyxliar | 7gl6rlh4pymc | h1hr8su33v5d&gt;/
-  │ │ ├─ evaluation.json
-  │ │ └─ xgboost/&lt;training-job&gt;/output/
-  │ │ └─ model.tar.gz
-  │ ├─ input/
-  │ │ ├─ train.csv
-  │ │ └─ validation.csv
-  │ ├─ logistic-regression/
-  │ │ └─ &lt;two training jobs&gt;/
-  │ │ ├─ output/model.tar.gz
-  │ │ ├─ debug-output/…
-  │ │ └─ profiler-output/…
-  │ └─ xgboost/
-  │ └─ &lt;two training jobs&gt;/
-  │   ├─ output/model.tar.gz
-  │   ├─ debug-output/…
-  │   └─ profiler-output/…
-  │
-  ├─ inference/
-  │ └─ cell2cell/
-  │ └─ &lt;20261001T175034Z | 20261001T180713Z&gt;/
-  │   ├─ manifest.json
-  │   ├─ features.csv
-  │   ├─ scores.csv
-  │   └─ _transform/
-  │   ├─ input.csv
-  │   └─ input.csv.out
-  │
-  ├─ monitoring/
-  │ └─ cell2cell/baseline-inputs/05l81yyxliar/
-  │ ├─ manifest.json
-  │ ├─ train.csv
-  │ ├─ validation.csv
-  │ └─ test.csv
-  │
-  ├─ athena-results/
-  │ └─ 155303888042/…
-  ├─ dj/
-  │ ├─ _verscheck.txt
-  │ └─ athena-results/…
-  ├─ mb/
-  │ ├─ athena-results/…
-  │ └─ curated-test/cell2cell/v1/
-  │ ├─ split=train/&lt;Parquet file&gt;
-  │ └─ split=holdout/&lt;Parquet file&gt;
-  │ ├─ cell2cell-logreg-20260924t223912z/
-  │ │ └─ source/sourcedir.tar.gz
-  │ ├─ cell2cell-logreg-20260924t230137z/
-  │ │ └─ source/sourcedir.tar.gz
-  │ ├─ logs/…
-  │ └─ helloworld.txt
+  <pre class="overflowBlock"><code>s3://customer-churn-pipeline-a81b79/
+├─ athena-results/
+│     ├─ 45f5d003….txt
+│     └─ tables/
+│         ├─ 448ba7d3…-manifest.csv
+│         └─ 448ba7d3….metadata
+│
+├─ curated/
+│   └─ cell2cell/
+│       └─ v1/
+│           ├─ split=holdout/
+│           │   └─ 20261001…233b ← Parquet file
+│           └─ split=train/
+│               └─ 20261001…61f9 ← Parquet file
+│
+├─ pipeline/
+│   ├─ code/
+│   │   ├─ evaluate.py
+│   │   ├─ ingest.py
+│   │   ├─ preprocess.py
+│   │   └─ process.py
+│   │
+│   ├─ 81k7gfjq2h8n/ ← Earlier failed execution
+│   │   └─ process/
+│   │       ├─ contract/
+│   │       │   └─ preprocessing_parameters.json
+│   │       ├─ identifiers/
+│   │       │   ├─ test.csv
+│   │       │   ├─ train.csv
+│   │       │   └─ validation.csv
+│   │       ├─ test/
+│   │       │   └─ test.csv
+│   │       ├─ train/
+│   │       │   └─ train.csv
+│   │       └─ validation/
+│   │           └─ validation.csv
+│   │
+│   └─ vh4m3uvvf3mo/ ← Successful execution
+│       ├─ feature-store/
+│       │   └─ ingestion.json ← Ingestion report
+│       └─ process/
+│           ├─ contract/
+│           │   └─ preprocessing_parameters.json
+│           ├─ identifiers/
+│           │   ├─ test.csv
+│           │   ├─ train.csv
+│           │   └─ validation.csv
+│           ├─ test/
+│           │   └─ test.csv
+│           ├─ train/
+│           │   └─ train.csv
+│           └─ validation/
+│               └─ validation.csv
+│
+└─ models/
+    └─ cell2cell/
+        └─ v1/
+            └─ vh4m3uvvf3mo/ ← Same successful execution
+                ├─ evaluation/
+                │   └─ evaluation.json
+                └─ pipelines-vh4m3uvvf3mo-Train-iGjSdVFsi5/
+                    └─ output/
+                        └─ model.tar.gz
 </code></pre>
 
   <p><code>pipeline/</code> is the odd one out: it is keyed by execution rather than by dataset, because it records a run rather than an artifact. Every stage updates the same manifest in turn.</p>
