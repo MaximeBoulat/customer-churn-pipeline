@@ -36,9 +36,7 @@
 
   <h2>Sequence analysis</h2>
 
-  <h3>Provision and curate data</h3>
-
-  <h4>Overview</h4>
+  <h3>Overview</h3>
 
   <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
 
@@ -53,7 +51,7 @@
   </ol>
 
 
-  <h5>Why materialize to Parquet instead of querying the raw CSV directly</h5>
+  <h4>Why materialize to Parquet instead of querying the raw CSV directly</h4>
 
   <p>Athena bills by bytes scanned per query. <code>OpenCSVSerde</code> reads full rows as uncompressed text with no partition pruning, so every query against <code>cell2cell_raw</code> scans the entire raw CSV. Snappy-compressed, partitioned Parquet reduces the bytes scanned per query, which lowers both cost and latency &mdash; this is the performance gain.</p>
 
@@ -61,9 +59,9 @@
 
   <p>A view is also not materialized: every query against it would re-read the raw CSV and re-run its SELECT logic, including the casts and the derived <code>churn_label</code>/<code>split</code> columns, on every call. CTAS turns that recurring per-query cost into a one-time cost paid once, at curation time, instead of on every downstream query.</p>
 
-  <h4>Artifacts and effects analysis</h4>
+  <h3>Artifacts and effects analysis</h3>
 
-  <h5>Versioned processes and outputs</h5>
+  <h4>Versioned processes and outputs</h4>
 
   <p><code>CURATED_VERSION</code> identifies the schema version of both the external table over the raw CSVs and the CTAS that produces the curated dataset. When those schemas change, the version is bumped and the curated output goes into the corresponding S3 folder: <code>curated/cell2cell/{version}/</code>.</p>
 

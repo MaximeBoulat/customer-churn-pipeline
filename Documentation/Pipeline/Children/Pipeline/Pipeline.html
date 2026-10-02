@@ -34,7 +34,7 @@
   <h5>Versioned processes and outputs</h5>
   <p>The exported <code>TF_VAR_*</code> values are embedded in the definition. <code>FEATURE_VERSION</code> selects the Feature Group name and schema; changing its name replaces the group managed by Terraform. Old offline files remain.</p>
 
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
 
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/
@@ -44,7 +44,7 @@
 │     ├─ ingest.py
 │     └─ evaluate.py</span>
 └─ …</pre>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>Unchanged. This operation provisions resources and uploads code.</p>
 
 
@@ -61,11 +61,11 @@
 
   <p>Each run receives an execution ID. It uses the configuration already registered by Terraform.</p>
 
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
 
   <p>No S3 reads or writes by the launcher.</p>
   
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>Unchanged.</p>
 
 
@@ -88,7 +88,7 @@
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p><code>CURATED_VERSION</code> selects the input directory. <code>PREPROCESSING_CONTRACT</code> identifies the transformation rules; fitted values are saved separately for each execution.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ curated/cell2cell/{curated-version}/
 │  ├─ split=train/                     [READ]
@@ -101,7 +101,7 @@
 │     ├─ identifiers/                  IDs for each split
 │     └─ contract/preprocessing_parameters.json</span>
 └─ …</pre>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>The labeled pool becomes approximately 70% train, 15% validation and 15% test. The unlabeled holdout stays untouched. Orange = transformed, red = excluded from model inputs, green = added. IDs are retained in separate files and the label is the first CSV column.</p>
   <div class="overflowBlock" style="overflow-x: auto;">
     <table class="tg" style="min-width: 1000px;">
@@ -442,7 +442,7 @@
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p><code>FEATURE_VERSION</code> selects the group and offline prefix. Records carry the execution ID and event time. If emitted fields change, regenerate <code>pipeline/schema.json</code> and bump the feature version before applying Terraform.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/
 │  ├─ process/                         [READ] splits, IDs and contract
@@ -454,7 +454,7 @@ s3://sagemaker-us-east-1-702238036392/
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;AWS-generated folders&gt;/
 │     └─ &lt;Parquet files&gt;               [WRITE] asynchronous delivery</span>
 └─ …</pre>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>Feature values and split membership are unchanged. Records are appended to the offline store with the fields below. Training subsequently reads the CSVs directly.</p>
   <div class="overflowBlock">
     <table class="tg">
@@ -515,7 +515,7 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p><code>MODEL_VERSION</code> identifies the model configuration. The execution ID separates its artifact from other runs.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/process/
 │  ├─ train/train.csv                  [READ]
@@ -524,7 +524,7 @@ s3://sagemaker-us-east-1-702238036392/
 ├─ models/cell2cell/{model-version}/{execution-id}/
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;training-job-name&gt;/output/model.tar.gz [WRITE]</span>
 └─ …</pre>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>No rows or columns change. The label is the target; numeric feature columns are the inputs. Test and holdout data are not read.</p>
 
 
@@ -537,14 +537,14 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p>The evaluation report belongs to the same model version and execution as the trained artifact.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/process/test/test.csv [READ]
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  ├─ &lt;training-job-name&gt;/output/model.tar.gz   [READ]
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ evaluation/evaluation.json               [WRITE]</span>
 └─ …</pre>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>The test rows and columns remain unchanged. The output is a metrics report; no transformed dataset is created.</p>
 
 
@@ -557,13 +557,13 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p>No new artifact version is created. The pass/fail result is recorded in the pipeline execution.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  └─ evaluation/evaluation.json       [READ]
 └─ …</pre>
   <p>No S3 writes. Existing artifacts remain if the gate fails.</p>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>Unchanged; the gate reads a metric, not dataset rows.</p>
 
 
@@ -576,7 +576,7 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p>SageMaker adds a numeric package version to the model package group. That number is independent of <code>MODEL_VERSION</code>.</p>
-  <h4>S3 layout after the step</h4>
+  <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/process/contract/
 │  └─ preprocessing_parameters.json    [REFERENCED by package]
@@ -585,7 +585,7 @@ s3://sagemaker-us-east-1-702238036392/
 │  └─ evaluation/evaluation.json       [REFERENCED by package]
 └─ …</pre>
   <p>No new S3 files. The new package is a SageMaker registry entry.</p>
-  <h4>Dataset before and after</h4>
+  <h5>Dataset before and after</h5>
   <p>Unchanged. No dataset is read or rewritten.</p>
 
 
