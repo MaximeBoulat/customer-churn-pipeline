@@ -130,11 +130,11 @@ curated labeled Parquet
                                                       └─ Fail: no package
 ```
 
-`feature-store/` contains the preprocessing and ingestion code, plus the Feature
-Group schema. `pipeline/` owns the Terraform resources for **both stages**. It
-creates the Feature Group, model package group and pipeline together. It uses
-the existing `LabRole` and existing buckets; it creates no bucket, IAM role or
-endpoint. The data-catalog stack remains separate.
+`pipeline/` contains the preprocessing and ingestion code, the Feature Group
+schema, and the Terraform resources for **both stages**. It creates the Feature
+Group, model package group and pipeline together. It uses the existing `LabRole`
+and existing buckets; it creates no bucket, IAM role or endpoint. The
+data-catalog stack remains separate.
 
 Preprocessing splits labeled customers 70/15/15, fits medians and encodings on
 training rows only, and writes label-first CSVs and fitted parameters. Ingestion
@@ -219,14 +219,14 @@ No cost-based threshold fitting or calibration is included.
 
 ### Feature schema changes
 
-`feature-store/schema.json` starts with the team's 70 model feature names, stored
+`pipeline/schema.json` starts with the team's 70 model feature names, stored
 as Fractional fields, plus customer ID, label, split, event time and execution ID.
 Ingestion compares it with actual processed fields before writing records.
 If transformation changes alter that shape, regenerate from actual curated data:
 
 ```bash
 aws s3 cp "s3://${TF_VAR_output_bucket}/curated/cell2cell/${TF_VAR_curated_version}/split=train/" data/schema-input/ --recursive
-uv run python feature-store/generate_schema.py --curated-directory data/schema-input
+uv run python pipeline/generate_schema.py --curated-directory data/schema-input
 ```
 
 Use an empty local directory when switching curated versions. Bump

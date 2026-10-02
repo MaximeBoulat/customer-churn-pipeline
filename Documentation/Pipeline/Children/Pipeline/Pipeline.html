@@ -4,7 +4,9 @@
 <head>
   <title>Pipeline</title>
   <style>
-    pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    pre {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
   </style>
 </head>
 
@@ -626,13 +628,13 @@ uv run python pipeline/run_pipeline.py</code></pre>
   <h2>Files and operation</h2>
   <p><code>preprocess.py</code> contains the transformation; <code>process.py</code> reads and writes job files; <code>ingest.py</code> sends records. The pipeline calls these files directly. There is no second ingestion path.</p>
   <h3>When the feature schema changes</h3>
-  <p>The checked-in <code>feature-store/schema.json</code> starts from the team's existing 70-feature schema. All model features are stored as Fractional values to preserve median-imputed values; five additional fields describe each record. If preprocessing changes the emitted fields, regenerate the schema from real curated data and bump <code>FEATURE_VERSION</code> before applying Terraform. The ingestion step rejects a mismatch rather than silently dropping fields.</p>
+  <p>The checked-in <code>pipeline/schema.json</code> starts from the team's existing 70-feature schema. All model features are stored as Fractional values to preserve median-imputed values; five additional fields describe each record. If preprocessing changes the emitted fields, regenerate the schema from real curated data and bump <code>FEATURE_VERSION</code> before applying Terraform. The ingestion step rejects a mismatch rather than silently dropping fields.</p>
   <p>The Feature Group persists across runs. Bumping the feature version changes its name and replaces the group managed by Terraform; its old offline S3 files remain.</p>
 
   <p>From the repository root, with <code>.env</code> exported, download the actual curated labeled files and regenerate the schema. These are real data operations, not tests. Then bump <code>TF_VAR_feature_version</code> in <code>.env</code>, reload it, and review the pipeline Terraform plan.</p>
   <pre class="overflowBlock"><code>uv sync
 aws s3 cp "s3://${TF_VAR_output_bucket}/curated/cell2cell/${TF_VAR_curated_version}/split=train/" data/schema-input/ --recursive
-uv run python feature-store/generate_schema.py --curated-directory data/schema-input</code></pre>
+uv run python pipeline/generate_schema.py --curated-directory data/schema-input</code></pre>
   <p>Use an empty local input directory for a new curated version so old files are not mixed in. The initial schema is carried from the team implementation; it has not been regenerated or executed in this repo yet.</p>
 
 </body>

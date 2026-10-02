@@ -28,9 +28,9 @@ locals {
   pipeline_name = "${var.project_prefix}-pipeline"
   code_prefix   = "pipeline/code"
   code_files = {
-    "preprocess.py" = "${path.module}/../feature-store/preprocess.py"
-    "process.py"    = "${path.module}/../feature-store/process.py"
-    "ingest.py"     = "${path.module}/../feature-store/ingest.py"
+    "preprocess.py" = "${path.module}/preprocess.py"
+    "process.py"    = "${path.module}/process.py"
+    "ingest.py"     = "${path.module}/ingest.py"
     "evaluate.py"   = "${path.module}/evaluate.py"
   }
 }
@@ -51,7 +51,7 @@ resource "aws_sagemaker_feature_group" "features" {
   role_arn                       = data.aws_iam_role.execution.arn
 
   dynamic "feature_definition" {
-    for_each = jsondecode(file("${path.module}/../feature-store/schema.json"))
+    for_each = jsondecode(file("${path.module}/schema.json"))
     content {
       feature_name = feature_definition.value.FeatureName
       feature_type = feature_definition.value.FeatureType
