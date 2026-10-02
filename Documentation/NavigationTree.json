@@ -26,21 +26,12 @@
             "url": "DataCatalog.html"
           },
           {
-            "id": 22,
-            "type": "article",
-            "title": "Feature store",
-            "lastModified": "2026-10-01",
-            "folderName": "FeatureStore",
-            "description": "Preprocessing and offline Feature Store ingestion.",
-            "url": "FeatureStore.html"
-          },
-          {
             "id": 23,
             "type": "article",
             "title": "Pipeline",
-            "lastModified": "2026-10-01",
+            "lastModified": "2026-10-02",
             "folderName": "Pipeline",
-            "description": "Provision and run the SageMaker training, evaluation and registration pipeline.",
+            "description": "Provision and run the SageMaker preprocessing, Feature Store ingestion, training, evaluation and registration pipeline.",
             "url": "Pipeline.html"
           },
           {
