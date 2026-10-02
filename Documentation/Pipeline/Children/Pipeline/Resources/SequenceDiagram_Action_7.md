@@ -11,9 +11,6 @@ sequenceDiagram
         participant Group as Feature Group
         participant Registry as Model package group
     end 
-    box AWS managed registry
-        participant ECR as Amazon ECR
-    end
     box Storage
         participant S3 as S3 storage
     end

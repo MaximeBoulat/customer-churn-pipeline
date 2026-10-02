@@ -11,17 +11,12 @@ sequenceDiagram
         participant Group as Feature Group
         participant Registry as Model package group
     end
-    box AWS managed registry
-        participant ECR as Amazon ECR
-    end
     box Storage
         participant S3 as S3 storage
     end
     Note over Operator,S3: Ingest features
     Note over Pipeline: Preprocessing succeeded
     Pipeline->>Jobs: start ingestion
-    Jobs->>ECR: pull container image
-    ECR-->>Jobs: XGBoost image
     Jobs->>S3: read splits, identifiers and fitted parameters
     S3-->>Jobs: processed rows and feature names
     Jobs->>Group: check readiness and schema
