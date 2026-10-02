@@ -5,7 +5,7 @@ flowchart TB
         Operator["Operator"]
         Terraform["Terraform<br/>pipeline/main.tf and definition.tf"]
         Launcher["run_pipeline.py"]
-    end
+    end 
     subgraph AWS["AWS — Learner Lab"]
         Pipeline["SageMaker pipeline"]
         Preparation["Preprocessing and ingestion jobs"]
@@ -24,10 +24,10 @@ flowchart TB
     Terraform -->|creates| FeatureGroup
     Terraform -->|creates| Registry
     Launcher -->|starts execution| Pipeline
-    Pipeline -->|runs in order| Preparation
+    Pipeline -->|runs| Preparation
     Preparation -->|ingests| FeatureGroup
-    Preparation -->|then| Training
-    Training -->|then| Evaluation
+    Pipeline -->|runs| Training
+    Pipeline -->|runs| Evaluation
     Evaluation -->|reports AUC| Gate
     Gate -->|pass: register candidate| Registry
     Gate -->|fail: stop| Failed["Failed execution"]

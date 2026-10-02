@@ -63,12 +63,12 @@
 │  ├─ split=train/                         [READ by preprocessing]
 │  └─ split=holdout/                       untouched
 ├─ pipeline/
-<span style="background-color: #fff3e0; color: #8a4500;">│  ├─ code/                                [WRITE on apply; READ by jobs]
+<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  ├─ code/                                [WRITE on apply; READ by jobs]
 │  │  ├─ preprocess.py
 │  │  ├─ process.py
 │  │  ├─ ingest.py
 │  │  └─ evaluate.py</span>
-<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ {execution-id}/                      [ADDED per execution]
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ {execution-id}/                      [ADDED per execution]
 │     ├─ process/
 │     │  ├─ train/train.csv                [WRITE; READ by ingestion and training]
 │     │  ├─ validation/validation.csv      [WRITE; READ by ingestion and training]
@@ -78,7 +78,7 @@
 │     │                                    [WRITE; READ by ingestion; URI in package]
 │     └─ feature-store/ingestion.json      [WRITE] accepted-record counts</span>
 ├─ models/cell2cell/v1/
-<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ {execution-id}/                      [ADDED per execution]
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ {execution-id}/                      [ADDED per execution]
 │     ├─ &lt;training-job-name&gt;/output/model.tar.gz
 │     │                                    [WRITE; READ by evaluation; URI in package]
 │     └─ evaluation/evaluation.json        [WRITE; READ by gate; URI in package]</span>
@@ -86,7 +86,7 @@
 
 s3://sagemaker-us-east-1-702238036392/
 └─ features/churn-rebuild/cell2cell/v1/
-<span style="background-color: #e8f5e9; color: #1b5e20;">   └─ &lt;AWS-generated group and date folders&gt;/
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   └─ &lt;AWS-generated group and date folders&gt;/
       └─ &lt;Parquet files&gt;                  [WRITE + ADDED] asynchronous delivery</span></pre>
   <p>Code files are added on first apply and updated when changed. SageMaker adds account, region, group and time folders beneath the offline prefix; <code>ingestion.json</code> records the resolved location. The existing lab bucket holds rebuildable features, following the team implementation. No new bucket is created.</p>
   <p>Model packages and execution records are SageMaker resources, not S3 folders. Training may also write AWS diagnostic artifacts under its output prefix.</p>

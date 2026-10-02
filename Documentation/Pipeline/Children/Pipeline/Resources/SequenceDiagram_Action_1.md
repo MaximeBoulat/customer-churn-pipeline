@@ -9,7 +9,7 @@ sequenceDiagram
         participant Pipeline as SageMaker pipeline
         participant Jobs as Processing and training jobs
         participant Group as Feature Group
-        participant Registry as Model package group
+        participant Registry as Model package group 
     end
     box Storage
         participant S3
