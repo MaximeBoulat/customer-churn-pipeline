@@ -9,6 +9,195 @@
 
 <body>
 
+  <h2>Feature overview</h2>
+
+  <p>The data catalog stage registers the raw cell2cell CSV in Glue, then uses Athena to curate it into a typed, partitioned Parquet table and a training-ready view. It is a one-shot batch construction: once curated, the raw table is never read again.</p>
+
+  <h2>Component diagram</h2>
+
+  <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+
+  <h2>Sequence diagram</h2>
+
+  <ol>
+    <li>Terraform creates the Glue database (the catalog namespace).</li>
+    <li>Terraform creates the <code>cell2cell_raw</code> external table over the raw CSV in S3. This is schema-on-read: <code>OpenCSVSerde</code> parses the quoted CSV, every column is typed <code>STRING</code>, and no data is moved.</li>
+    <li>Terraform creates the Athena workgroup, which sets the query result output location (distinct from the table's own <code>LOCATION</code>).</li>
+    <li>The operator runs <code>run_curation.py</code>, which submits <code>01_create_curated.sql</code> to Athena.</li>
+    <li>Athena resolves the raw table's schema from Glue, reads the raw CSV from S3, and executes the CTAS: casting every column to its real type, deriving <code>churn_label</code> and <code>split</code>, and writing the result as Parquet (partitioned by <code>split</code>) to a new S3 location.</li>
+    <li>The CTAS registers the new <code>cell2cell_curated</code> table in Glue. <code>cell2cell_raw</code> was only ever read by this one query and is not used again.</li>
+    <li><code>run_curation.py</code> submits <code>02_create_view.sql</code>, which creates <code>vw_cell2cell_training</code> &mdash; a view over <code>cell2cell_curated</code> filtered to <code>split = 'train'</code> with a non-null <code>churn_label</code>.</li>
+  </ol>
+
+  <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
+
+  <h2>Versioned processes and outputs</h2>
+
+  <p>This stage has one configured output version: <code>CURATED_VERSION</code>. It names the curated dataset's S3 directory. It does not version the SQL, create a run identifier, or give the Glue tables separate versioned names.</p>
+
+  <pre class="overflowBlock"><code>.env: TF_VAR_curated_version=v1
+├─ Terraform: var.curated_version → curated_location output
+└─ Python: config.CURATED_VERSION → config.CURATED_LOCATION
+   └─ 01_create_curated.sql: external_location
+      └─ s3://customer-churn-pipeline-a81b79/curated/cell2cell/v1/</code></pre>
+
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead><tr><th>Process or artifact</th><th>Before first run</th><th>After successful run</th><th>What is versioned?</th></tr></thead>
+      <tbody>
+        <tr><td>Terraform provisioning</td><td>Stage resources do not yet exist.</td><td>Glue database, raw table and Athena workgroup exist.</td><td>Configuration files are tracked in Git. Resource names do not include the curated version.</td></tr>
+        <tr><td>SQL curation</td><td>The curated table does not exist and the target S3 prefix is empty.</td><td>Typed Parquet exists under <code>curated/cell2cell/v1/</code>.</td><td><code>CURATED_VERSION</code> selects the output directory; SQL files are tracked in Git.</td></tr>
+        <tr><td>Curated table and training view</td><td>Neither exists.</td><td><code>cell2cell_curated</code> points to the Parquet; <code>vw_cell2cell_training</code> selects from that table.</td><td>Neither name includes a version. The view follows the table it references.</td></tr>
+        <tr><td>Athena query results</td><td>Earlier query results may exist.</td><td>New query result and metadata objects are added under <code>athena-results/</code>.</td><td>Athena uses query identifiers, independently of <code>CURATED_VERSION</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <blockquote><p><strong>Running again:</strong> Terraform can be applied again. The curation script cannot simply recreate the existing table or write into an occupied CTAS destination. Changing <code>v1</code> to <code>v2</code> changes the destination, but the fixed table name still exists. This implementation has no automatic version migration or replacement procedure.</p></blockquote>
+
+  <h2>S3 before and after</h2>
+
+  <p>These diagrams describe the changes made by a successful first run, rather than a live bucket inventory. Unrelated contents are collapsed. <strong>[READ]</strong> and <strong>[WRITE]</strong> identify access; color identifies change: <span style="background-color: #e8f5e9; color: #1b5e20;">green = added</span>, <span style="background-color: #fff3e0; color: #8a4500;">orange = modified</span>, <span style="background-color: #ffebee; color: #b71c1c;">red = removed</span>. This stage adds objects; it does not modify or delete the source objects.</p>
+
+  <h3>Before</h3>
+
+  <pre class="overflowBlock">s3://aai-540-group-2/
+├─ raw/
+│  └─ cell2cell/
+│     ├─ cell2celltrain.csv       [READ] labeled source
+│     ├─ cell2cellholdout.csv     [READ] unlabeled source
+│     └─ provenance.json         [EXCLUDED] SQL selects CSV paths only
+└─ …                            unrelated contents collapsed
+
+s3://customer-churn-pipeline-a81b79/
+└─ …                            existing unrelated contents, if any
+
+Target prefix curated/cell2cell/v1/ is empty.
+No query outputs from this run exist yet.</pre>
+
+  <h3>After</h3>
+
+  <pre class="overflowBlock">s3://aai-540-group-2/
+├─ raw/
+│  └─ cell2cell/
+│     ├─ cell2celltrain.csv       [READ] unchanged
+│     ├─ cell2cellholdout.csv     [READ] unchanged
+│     └─ provenance.json         [EXCLUDED] unchanged
+└─ …                            unrelated contents collapsed
+
+s3://customer-churn-pipeline-a81b79/
+├─ curated/
+│  └─ cell2cell/
+<span style="background-color: #e8f5e9; color: #1b5e20;">│     └─ v1/                    [ADDED] selected by CURATED_VERSION
+│        ├─ split=train/
+│        │  └─ &lt;generated files&gt; [WRITE + ADDED] labeled Parquet
+│        └─ split=holdout/
+│           └─ &lt;generated files&gt; [WRITE + ADDED] unlabeled Parquet</span>
+├─ athena-results/
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  ├─ &lt;query result objects&gt;     [WRITE + ADDED] query results
+│  └─ tables/
+│     └─ &lt;query metadata&gt;        [WRITE + ADDED] CTAS manifest and metadata</span>
+└─ …                            existing unrelated contents collapsed</pre>
+
+  <p>Athena generates the Parquet object names and file count; files need not have a <code>.parquet</code> extension. The training view is stored as a Glue catalog definition, not as another S3 dataset. Terraform configures locations but does not write these data objects. Local Terraform state is outside this S3 diagram.</p>
+
+  <h2>Dataset before and after</h2>
+
+  <h3>Rows and partitions</h3>
+
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead><tr><th>Property</th><th>Before: raw CSVs</th><th>After: curated table</th><th>After: training view</th></tr></thead>
+      <tbody>
+        <tr><td>Row selection</td><td>Labeled and unlabeled source files; headers skipped by the raw table.</td><td>Only CSV paths and rows whose customer ID contains digits only.</td><td>Only <code>split = 'train'</code> and non-null <code>churn_label</code>.</td></tr>
+        <tr><td>Train / holdout</td><td>Separate source files.</td><td><code>churn</code> equal to <code>Yes</code> or <code>No</code> → <code>train</code>; all other values → <code>holdout</code>. Selection is based on the label, not the filename.</td><td>Labeled pool only.</td></tr>
+        <tr><td>Train / validation / test</td><td>No random split performed here.</td><td>No random split performed here.</td><td>Still the entire labeled pool. Later preprocessing will split it.</td></tr>
+        <tr><td>Storage</td><td>CSV, read as strings.</td><td>Snappy Parquet partitioned by <code>split</code>.</td><td>Logical SQL view; no additional data copy.</td></tr>
+        <tr><td>Column count</td><td>58</td><td>60 logical columns: 58 retained + <code>churn_label</code> + <code>split</code>.</td><td>55 columns: five curated columns excluded.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Column comparison</h3>
+
+  <p>One row per column, one comparison column per dataset state. Future stages can extend the comparison horizontally using the same column names and change colors. Colors describe the change from the immediately preceding dataset state. Orange includes value normalization even when the type stays <code>STRING</code>; red here means excluded from the view, not deleted from Parquet.</p>
+
+  <p>The training view excludes three leakage columns (<code>retentioncalls</code>, <code>retentionoffersaccepted</code>, <code>madecalltoretentionteam</code>), the original <code>churn</code> text label, and <code>split</code>. The partition key <code>split</code> is represented by the S3 partition directories and exposed by the catalog; it is not an extra field inside each Parquet file. Rows below retain source-column order for comparison; the view's actual SELECT order starts with <code>churn_label</code>, then <code>customerid</code>.</p>
+
+  <div class="overflowBlock" style="overflow-x: auto;">
+    <table class="tg" style="min-width: 1150px;">
+      <thead><tr><th>Column</th><th>Before: raw table</th><th>After: curated table</th><th>After: training view</th><th>Transformation</th></tr></thead>
+      <tbody>
+          <tr><td><code>customerid</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>churn</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td><span style="background-color: #ffebee; color: #b71c1c;">Excluded from view</span></td><td>Empty strings and NA become NULL. Retained in curated data; numeric label used in view.</td></tr>
+          <tr><td><code>monthlyrevenue</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>monthlyminutes</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>totalrecurringcharge</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>directorassistedcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>overageminutes</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>roamingcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>percchangeminutes</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>percchangerevenues</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>droppedcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>blockedcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>unansweredcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>customercarecalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>threewaycalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>receivedcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>outboundcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>inboundcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>peakcallsinout</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>offpeakcallsinout</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>droppedblockedcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>callforwardingcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>callwaitingcalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">DOUBLE — modified</span></td><td>DOUBLE — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>monthsinservice</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>uniquesubs</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>activesubs</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>servicearea</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>handsets</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>handsetmodels</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>currentequipmentdays</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>agehh1</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>agehh2</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>childreninhh</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>handsetrefurbished</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>handsetwebcapable</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>truckowner</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>rvowner</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>homeownership</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>buysviamailorder</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>respondstomailoffers</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>optoutmailings</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>nonustravel</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>ownscomputer</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>hascreditcard</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>retentioncalls</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td><span style="background-color: #ffebee; color: #b71c1c;">Excluded from view</span></td><td>Type conversion; invalid numeric values become NULL. Leakage column; retained in curated data.</td></tr>
+          <tr><td><code>retentionoffersaccepted</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td><span style="background-color: #ffebee; color: #b71c1c;">Excluded from view</span></td><td>Type conversion; invalid numeric values become NULL. Leakage column; retained in curated data.</td></tr>
+          <tr><td><code>newcellphoneuser</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>notnewcellphoneuser</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>referralsmadebysubscriber</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>incomegroup</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>ownsmotorcycle</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>adjustmentstocreditrating</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>handsetprice</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">BIGINT — modified</span></td><td>BIGINT — retained</td><td>Type conversion; invalid numeric values become NULL.</td></tr>
+          <tr><td><code>madecalltoretentionteam</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td><span style="background-color: #ffebee; color: #b71c1c;">Excluded from view</span></td><td>Empty strings and NA become NULL. Leakage column; retained in curated data.</td></tr>
+          <tr><td><code>creditrating</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>prizmcode</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>occupation</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>maritalstatus</code></td><td>STRING</td><td><span style="background-color: #fff3e0; color: #8a4500;">STRING — modified</span></td><td>STRING — retained</td><td>Empty strings and NA become NULL.</td></tr>
+          <tr><td><code>churn_label</code></td><td>—</td><td><span style="background-color: #e8f5e9; color: #1b5e20;">INTEGER — added</span></td><td>INTEGER — retained</td><td>Derived from churn: Yes → 1; No → 0; otherwise NULL.</td></tr>
+          <tr><td><code>split</code></td><td>—</td><td><span style="background-color: #e8f5e9; color: #1b5e20;">STRING — added</span></td><td><span style="background-color: #ffebee; color: #b71c1c;">Excluded from view</span></td><td>Partition key: train for Yes/No labels; otherwise holdout. Retained in curated data; view selects only train rows.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+
+
+  
+
+
+
 </body>
 
 </html>
