@@ -229,56 +229,57 @@
   <p><code>used</code> holds the four version axes for the execution, sourced from <code>src/config.py</code> at creation and fixed for the life of the run. <code>update_manifest(execution_id, stage, status, **produced_fields)</code> merges each stage's own fields into <code>produced</code> as a flat dict.</p>
 
 <pre class="overflowBlock"><code>{
-"execution_id": "7gl6rlh4pymc",
-"used": {
+{
+  "execution_id": "v03gvl2je2xx",
+  "used": {
     "curated_version": "v1",
     "preprocessing_contract": "v1",
     "feature_version": "v1",
     "model_version": "v1"
-},
-"produced": {
+  },
+  "produced": {
     "model_package_version": null,
     "preprocessing": {
-        "feature_count": 70,
-        "split_seed": 540,
-        "split_fractions": {
-            "train": 0.7,
-            "validation": 0.15,
-            "test": 0.15
-        }
+      "feature_count": 70,
+      "split_seed": 540,
+      "split_fractions": {
+        "train": 0.7,
+        "validation": 0.15,
+        "test": 0.15
+      }
     },
     "rows_curated": 51047,
     "feature_group": {
-        "name": "cell2cell-churn-v1",
-        "record_identifier": "customerid",
-        "feature_count": 74
+      "name": "churn-rebuild-features-v1",
+      "record_identifier": "customerid",
+      "feature_count": 75
     },
     "ingestion": {
-        "records_written": 2000,
-        "rows_transformed": 35733
+      "records_written": 51047,
+      "rows_transformed": 51047
     },
     "records_failed": 0,
     "evaluation": {
-        "auc": 0.672108803099396,
-        "pr_auc": 0.4443631834692365,
-        "confusion_matrix": {
-            "tp": 324,
-            "fp": 299,
-            "fn": 1883,
-            "tn": 5151
-        }
+      "auc": 0.6741399965913295,
+      "pr_auc": 0.45186614129086206,
+      "confusion_matrix": {
+        "tn": 5155,
+        "fp": 295,
+        "fn": 1853,
+        "tp": 354
+      }
     }
-},
-"stages": {
-      "catalog": "pending",
-      "processing": "completed",
-      "feature_store": "completed",
-      "training": "pending",
-      "evaluation": "completed",
-      "registration": "pending",
-      "gate": "pending"
-    }
+  },
+  "stages": {
+    "catalog": "pending",
+    "processing": "completed",
+    "feature_store": "completed",
+    "training": "pending",
+    "evaluation": "completed",
+    "registration": "pending",
+    "gate": "pending"
   }
+}
   </code></pre>
 
   <h2>Detailed: every artifact and edge</h2>
