@@ -17,6 +17,21 @@
 
   <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
 
+  <h2>Key AWS actors and concepts</h2>
+
+  <p><strong>Glue</strong> manages the database, table, and view definitions. <strong>Athena</strong> is the SQL query engine that uses those definitions to read and process the data stored in <strong>S3</strong>.</p>
+
+  <pre class="overflowBlock">Learner Lab account / us-east-1
+└─ Glue Data Catalog
+   ├─ &lt;homework database&gt;
+   │  └─ …
+   ├─ &lt;team project database&gt;
+   │  └─ …
+   └─ churn_rebuild
+      ├─ cell2cell_raw            external table over raw CSVs
+      ├─ cell2cell_curated        table over curated Parquet
+      └─ vw_cell2cell_training    saved query over the curated table</pre>
+
   <h2>Sequence diagram</h2>
 
   <ol>
@@ -30,6 +45,14 @@
   </ol>
 
   <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
+
+  <h3>Why materialize to Parquet instead of querying the raw CSV directly</h3>
+
+  <p>Athena bills by bytes scanned per query. <code>OpenCSVSerde</code> reads full rows as uncompressed text with no partition pruning, so every query against <code>cell2cell_raw</code> scans the entire raw CSV. Snappy-compressed, partitioned Parquet reduces the bytes scanned per query, which lowers both cost and latency &mdash; this is the performance gain.</p>
+
+  <p>It is not only a performance question. <code>OpenCSVSerde</code> can only reliably return <code>STRING</code> columns; real types only exist once the CTAS applies its explicit <code>CAST</code>s. A view over the raw table would still be all-STRING.</p>
+
+  <p>A view is also not materialized: every query against it would re-read the raw CSV and re-run its SELECT logic, including the casts and the derived <code>churn_label</code>/<code>split</code> columns, on every call. CTAS turns that recurring per-query cost into a one-time cost paid once, at curation time, instead of on every downstream query.</p>
 
   <h2>Versioned processes and outputs</h2>
 

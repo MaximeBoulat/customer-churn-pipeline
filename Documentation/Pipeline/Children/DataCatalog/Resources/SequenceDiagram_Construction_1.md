@@ -12,9 +12,9 @@ sequenceDiagram
         participant Glue
         participant Athena
     end
-    box AWS query engine
+    box AWS query engine 
        
-        
+         
     end
     box Storage 
         participant S3
