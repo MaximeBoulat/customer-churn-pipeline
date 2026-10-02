@@ -1,0 +1,302 @@
+[
+  {
+    "FeatureName": "customerid",
+    "FeatureType": "Integral"
+  },
+  {
+    "FeatureName": "event_time",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "split_name",
+    "FeatureType": "String"
+  },
+  {
+    "FeatureName": "churn_label",
+    "FeatureType": "Integral"
+  },
+  {
+    "FeatureName": "monthlyrevenue",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "monthlyminutes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "totalrecurringcharge",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "directorassistedcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "overageminutes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "roamingcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "percchangeminutes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "percchangerevenues",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "droppedcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "blockedcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "unansweredcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "customercarecalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "threewaycalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "receivedcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "outboundcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "inboundcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "peakcallsinout",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "offpeakcallsinout",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "droppedblockedcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "callforwardingcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "callwaitingcalls",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "monthsinservice",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "uniquesubs",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "activesubs",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsets",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsetmodels",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "currentequipmentdays",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "agehh1",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "agehh2",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "referralsmadebysubscriber",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "incomegroup",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "adjustmentstocreditrating",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsetprice",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "age_unknown",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsetprice_unknown",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "usage_record_missing",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "servicearea",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "childreninhh__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsetrefurbished__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "handsetwebcapable__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "truckowner__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "rvowner__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "homeownership__unknown",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "buysviamailorder__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "respondstomailoffers__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "optoutmailings__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "nonustravel__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "ownscomputer__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "hascreditcard__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "newcellphoneuser__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "notnewcellphoneuser__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "ownsmotorcycle__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__2_high",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__3_good",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__4_medium",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__5_low",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__6_verylow",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "creditrating__7_lowest",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "prizmcode__rural",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "prizmcode__suburban",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "prizmcode__town",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__crafts",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__homemaker",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__other",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__professional",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__retired",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__self",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "occupation__student",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "maritalstatus__unknown",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "maritalstatus__yes",
+    "FeatureType": "Fractional"
+  },
+  {
+    "FeatureName": "execution_id",
+    "FeatureType": "String"
+  }
+]

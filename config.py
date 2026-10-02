@@ -11,4 +11,5 @@ CURATED_VERSION = os.environ["TF_VAR_curated_version"]
 
 DATABASE = PROJECT_PREFIX.replace("-", "_")
 WORKGROUP = PROJECT_PREFIX
+PIPELINE_NAME = f"{PROJECT_PREFIX}-pipeline"
 CURATED_LOCATION = f"s3://{OUTPUT_BUCKET}/curated/cell2cell/{CURATED_VERSION}/"

@@ -1,14 +1,159 @@
 <!DOCTYPE html>
 <html>
-
-<head>
-
-  <title>Pipeline</title>
-
-</head>
-
+<head><title>Pipeline</title></head>
 <body>
+  <h2>Feature overview</h2>
+  <p>The SageMaker pipeline starts from curated labeled Parquet. It runs preprocessing and Feature Store ingestion, trains XGBoost, evaluates it on the test split, and registers a model only when its AUC passes the quality gate. A registered model starts as <code>PendingManualApproval</code>; this does not approve or deploy it.</p>
 
+  <h2>Component diagram</h2>
+  <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+
+  <h2>Key AWS actors and concepts</h2>
+  <p><strong>SageMaker Pipelines</strong> coordinates jobs and records each execution. <strong>Training jobs</strong> fit models on temporary compute. A <strong>model package group</strong> holds registered model versions; each package points to a trained artifact and its inference image.</p>
+
+  <h2>Sequence diagram</h2>
+  <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
+  <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+
+  <h3>Infrastructure versus execution</h3>
+  <p><code>terraform apply</code> in <code>pipeline/</code> uploads four Python files to S3 and creates or updates the Feature Group, model package group and pipeline definition together. The definition is written once in <code>definition.tf</code>; Terraform converts it to JSON. There is no generator, copied JSON template, separate train-model stack or second Feature Store stack.</p>
+  <p><code>run_pipeline.py</code> starts an execution and prints its ARN. The jobs run in AWS and continue after the local command exits. Applying Terraform does not start a run; starting a run does not reapply Terraform.</p>
+
+  <h3>Data flow and quality gate</h3>
+  <p><code>Preprocess → IngestFeatures → Train → Evaluate → QualityGate → RegisterModel or Fail</code></p>
+  <p>Training waits for successful ingestion but reads preprocessing's CSVs directly. Validation is supplied to XGBoost to report metrics during training; this implementation uses a fixed 100 rounds and does not tune parameters. The test split is used only by evaluation.</p>
+  <p><strong>Classification threshold 0.5</strong> converts test probabilities into labels for precision, recall, F1, accuracy and the confusion matrix. <strong>AUC threshold 0.60</strong>, configured in <code>.env</code>, determines whether registration is allowed. These are different thresholds. Recalibration remains <code>1.0</code>; no cost-based threshold selection is fitted.</p>
+  <p>The registered package uses exactly the training image and artifact. Its metadata includes the S3 URI of this execution's fitted preprocessing contract. It does not provide a production approval or serving workflow.</p>
+
+  <h2>Versioned processes and outputs</h2>
+  <p><code>MODEL_VERSION</code> identifies the model configuration and selects <code>models/cell2cell/{version}/</code>. Each execution gets its own subfolder. SageMaker assigns a separate numeric package version on every successful registration; that number is not <code>MODEL_VERSION</code>.</p>
+  <p>The run also uses <code>CURATED_VERSION</code>, <code>PREPROCESSING_CONTRACT</code> and <code>FEATURE_VERSION</code>. These values come from the exported <code>TF_VAR_*</code> settings and are embedded when Terraform updates the definition. Reloading <code>.env</code> without applying Terraform does not change an already registered pipeline.</p>
+  <p>Before an execution, infrastructure exists but its run outputs do not. After success, model and evaluation artifacts exist and a pending package is added. A failed AUC gate retains the artifacts but adds no package. AWS holds execution status; there is no additional execution manifest.</p>
+
+  <h2>S3 layout after the stage</h2>
+  <p>Green = added. Code is updated by Terraform when files change; do not apply code updates while an execution is using that shared code prefix.</p>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/
+│  ├─ code/                              [READ by jobs; WRITE on apply]
+│  │  ├─ preprocess.py
+│  │  ├─ process.py
+│  │  ├─ ingest.py
+│  │  └─ evaluate.py
+│  └─ {execution-id}/
+│     ├─ process/
+│     │  ├─ train/train.csv              [READ by training]
+│     │  ├─ validation/validation.csv    [READ by training]
+│     │  ├─ test/test.csv                [READ by evaluation]
+│     │  ├─ contract/preprocessing_parameters.json
+│     │  └─ identifiers/                 …
+│     └─ feature-store/                  …
+├─ models/cell2cell/v1/
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ {execution-id}/
+│     ├─ &lt;training-job-name&gt;/
+│     │  └─ output/model.tar.gz          [WRITE + ADDED; READ by evaluation]
+│     └─ evaluation/evaluation.json     [WRITE + ADDED; referenced by registry]</span>
+└─ …                                     unrelated contents collapsed</pre>
+  <p>The package group and pipeline execution records are SageMaker resources, not folders in S3. Training may also write AWS diagnostic artifacts under its output prefix.</p>
+
+  <h2>Dataset before and after</h2>
+  <p>Training and evaluation do not change the processed datasets. The train and validation CSVs feed training; the test CSV feeds evaluation. The unlabeled holdout remains untouched. The new outputs are a model and a metrics report, not another transformed dataset.</p>
+  <div class="overflowBlock"><table class="tg">
+    <thead><tr><th>Dataset</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      <tr><td>Train</td><td>70% labeled split</td><td>Read for fitting; rows and columns unchanged.</td></tr>
+      <tr><td>Validation</td><td>15% labeled split</td><td>Read for training metrics; rows and columns unchanged.</td></tr>
+      <tr><td>Test</td><td>15% labeled split</td><td>Read for final evaluation; rows and columns unchanged.</td></tr>
+      <tr><td>Unlabeled holdout</td><td>Curated S3 partition</td><td>Not read.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Column comparison</h3>
+  <p>All model feature columns remain unchanged at this stage. Their positional order is defined by the fitted preprocessing contract.</p>
+  <div class="overflowBlock" style="overflow-x: auto;"><table class="tg" style="min-width: 1000px;"><thead><tr><th>Column</th><th>After preprocessing</th><th>Training and evaluation use</th><th>After this stage</th></tr></thead><tbody>
+<tr><td><code>churn_label</code></td><td>First CSV column: label</td><td>Training target / evaluation ground truth</td><td>Unchanged</td></tr>
+<tr><td><code>monthlyrevenue</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>monthlyminutes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>totalrecurringcharge</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>directorassistedcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>overageminutes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>roamingcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>percchangeminutes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>percchangerevenues</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>droppedcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>blockedcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>unansweredcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>customercarecalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>threewaycalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>receivedcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>outboundcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>inboundcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>peakcallsinout</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>offpeakcallsinout</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>droppedblockedcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>callforwardingcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>callwaitingcalls</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>monthsinservice</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>uniquesubs</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>activesubs</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsets</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsetmodels</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>currentequipmentdays</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>agehh1</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>agehh2</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>referralsmadebysubscriber</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>incomegroup</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>adjustmentstocreditrating</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsetprice</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>age_unknown</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsetprice_unknown</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>usage_record_missing</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>servicearea</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>childreninhh__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsetrefurbished__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>handsetwebcapable__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>truckowner__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>rvowner__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>homeownership__unknown</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>buysviamailorder__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>respondstomailoffers__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>optoutmailings__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>nonustravel__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>ownscomputer__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>hascreditcard__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>newcellphoneuser__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>notnewcellphoneuser__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>ownsmotorcycle__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__2_high</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__3_good</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__4_medium</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__5_low</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__6_verylow</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>creditrating__7_lowest</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>prizmcode__rural</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>prizmcode__suburban</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>prizmcode__town</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__crafts</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__homemaker</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__other</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__professional</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__retired</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__self</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>occupation__student</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>maritalstatus__unknown</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+<tr><td><code>maritalstatus__yes</code></td><td>Numeric feature</td><td>Model input</td><td>Unchanged</td></tr>
+</tbody></table></div>
+
+  <h2>Run from the repository root</h2>
+  <p>Prerequisites: stage 1 has produced curated Parquet; Learner Lab credentials are current; the existing SageMaker bucket named in <code>TF_VAR_offline_store_bucket</code> exists; <code>LabRole</code> can access both buckets and SageMaker. No bucket or IAM role is created here. The configured XGBoost image is for <code>us-east-1</code>.</p>
+  <pre class="overflowBlock"><code>set -a
+source .env
+set +a
+uv sync
+terraform -chdir=pipeline init
+terraform -chdir=pipeline plan
+terraform -chdir=pipeline apply
+uv run python pipeline/run_pipeline.py</code></pre>
+  <p>Review the plan before applying. <code>uv sync</code> updates the dependency lock normally. For another model run, repeat only the last command. In SageMaker Studio, open Pipelines → <code>churn-rebuild-pipeline</code> to see the DAG and step results. Registered candidates are under model package group <code>churn-rebuild-models</code>.</p>
+  <p>Processing and training compute stop when their jobs finish. The Feature Group, model package group, pipeline definition and S3 files remain. No endpoint is deployed.</p>
+  <p><strong>Implementation status:</strong> authored but not executed or validated against AWS. No Terraform, training, ingestion or tests have been run for this implementation.</p>
 </body>
-
 </html>

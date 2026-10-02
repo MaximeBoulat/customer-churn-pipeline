@@ -13,7 +13,7 @@
         "title": "Pipeline",
         "lastModified": "2026-10-01",
         "folderName": "Pipeline",
-        "description": "System architecture: three systems and the S3 layout they share, ported from the team repository's architecture document.",
+        "description": "Personal churn pipeline: curation, preprocessing, Feature Store and model candidate registration.",
         "url": "Pipeline.html",
         "children": [
           {
@@ -31,7 +31,7 @@
             "title": "Feature store",
             "lastModified": "2026-10-01",
             "folderName": "FeatureStore",
-            "description": "",
+            "description": "Preprocessing and offline Feature Store ingestion.",
             "url": "FeatureStore.html"
           },
           {
@@ -40,7 +40,7 @@
             "title": "Pipeline",
             "lastModified": "2026-10-01",
             "folderName": "Pipeline",
-            "description": "",
+            "description": "Provision and run the SageMaker training, evaluation and registration pipeline.",
             "url": "Pipeline.html"
           },
           {

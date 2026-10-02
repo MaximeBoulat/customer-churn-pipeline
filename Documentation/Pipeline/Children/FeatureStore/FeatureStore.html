@@ -1,14 +1,157 @@
 <!DOCTYPE html>
 <html>
-
-<head>
-
-  <title>Feature store</title>
-
-</head>
-
+<head><title>Feature store</title></head>
 <body>
+  <h2>Feature overview</h2>
+  <p>This stage reads the curated labeled data, splits it into train/validation/test, fits preprocessing on training rows, and writes numeric model inputs. It also ingests those same features into an offline SageMaker Feature Group. The pipeline runs this stage through <code>Preprocess</code> and <code>IngestFeatures</code>.</p>
 
+  <h2>Component diagram</h2>
+  <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+
+  <h2>Key AWS actors and concepts</h2>
+  <p><strong>SageMaker Processing</strong> runs our Python scripts on temporary AWS compute. A <strong>Feature Group</strong> defines the fields of stored feature records. Its <strong>offline store</strong> saves those records to S3 asynchronously and exposes them through a Glue table. The online store is disabled.</p>
+
+  <h2>Sequence diagram</h2>
+  <diagram-widget fileName="SequenceDiagram_Construction_1.md"></diagram-widget>
+
+  <h3>Preprocessing</h3>
+  <ol>
+    <li>Read <code>curated/cell2cell/{CURATED_VERSION}/split=train/</code> directly. The Athena training view is not used.</li>
+    <li>Assign customers deterministically to approximately 70% training, 15% validation and 15% test, separately within each class. A customer must occur once. The fixed seed is 540.</li>
+    <li>Exclude the three leakage columns and keep IDs, labels and partition information out of model features.</li>
+    <li>Treat zero ages as missing. Add flags for zero ages, missing handset price, and an entirely missing usage record.</li>
+    <li>Fit numeric medians, ServiceArea frequencies, and categorical levels on training rows only. Apply those values to every split. Other categorical fields are one-hot encoded with the first sorted category omitted.</li>
+    <li>Write headerless, label-first CSVs, corresponding customer IDs, and <code>preprocessing_parameters.json</code> containing the fitted transformation and feature order.</li>
+  </ol>
+  <p>Unseen ServiceArea values map to zero; unseen one-hot categories produce all zeros. Entirely missing numeric training columns use zero instead of a median. No probability recalibration is fitted here; the saved factor is <code>1.0</code>.</p>
+
+  <h3>Feature Store ingestion</h3>
+  <p><code>ingest.py</code> waits for the group to be ready, checks its schema against the processed features, and sends every train, validation and test row through <code>PutRecord</code>. It adds the customer ID, label, split name, execution ID and event time. An ingestion error fails the step and blocks training.</p>
+  <p>A successful step means all records were accepted by the API. Delivery into offline S3 files happens later. Training reads the processed CSVs directly, so it does not wait for that delivery or query Feature Store. Repeated executions append feature history; <code>execution_id</code> distinguishes their records.</p>
+
+  <h2>Versioned processes and outputs</h2>
+  <ul>
+    <li><code>CURATED_VERSION</code> selects the source Parquet directory.</li>
+    <li><code>PREPROCESSING_CONTRACT</code> identifies the transformation rules. Each execution saves its own fitted parameters under <code>pipeline/{execution-id}/process/contract/</code>.</li>
+    <li><code>FEATURE_VERSION</code> identifies the Feature Group schema. It is part of the group name and offline prefix.</li>
+  </ul>
+  <p>The checked-in <code>feature-store/schema.json</code> starts from the team's existing 70-feature schema. All model features are stored as Fractional values to preserve median-imputed values; five additional fields describe each record. If preprocessing changes the emitted fields, regenerate the schema from real curated data and bump <code>FEATURE_VERSION</code> before applying Terraform. The ingestion step rejects a mismatch rather than silently dropping fields.</p>
+  <p>The group and its offline location persist across runs. Bumping the feature version changes the group name and replaces the group managed by Terraform; its old offline S3 files remain. Before a run there are no outputs for that execution; afterward there are three CSV splits, fitted parameters, identifiers, an ingestion report and accepted feature records.</p>
+
+  <h2>S3 layout after the stage</h2>
+  <p>Green means added. Reads leave existing files unchanged. The offline store uses the existing Learner Lab SageMaker bucket, following the team implementation.</p>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ curated/cell2cell/v1/
+│  ├─ split=train/                   [READ] labeled Parquet
+│  └─ split=holdout/                 untouched
+├─ pipeline/
+│  ├─ code/                         [READ] scripts uploaded by Terraform
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ {execution-id}/
+│     ├─ process/
+│     │  ├─ train/train.csv          [WRITE + ADDED]
+│     │  ├─ validation/validation.csv
+│     │  ├─ test/test.csv
+│     │  ├─ identifiers/             matching IDs for each split
+│     │  └─ contract/preprocessing_parameters.json
+│     └─ feature-store/ingestion.json [WRITE + ADDED] API acceptance counts</span>
+└─ …                                unrelated contents collapsed
+
+s3://sagemaker-us-east-1-702238036392/
+└─ features/churn-rebuild/cell2cell/v1/
+<span style="background-color: #e8f5e9; color: #1b5e20;">   └─ &lt;AWS-generated group and date folders&gt;/
+      └─ &lt;Parquet files&gt;            [WRITE + ADDED] asynchronous offline delivery</span></pre>
+  <p>SageMaker adds its own account, region, group and time folders beneath the offline prefix. <code>ingestion.json</code> records the resolved location returned by the Feature Group. No new bucket is created by this implementation.</p>
+
+  <h2>Dataset before and after</h2>
+  <div class="overflowBlock"><table class="tg">
+    <thead><tr><th>Property</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      <tr><td>Rows</td><td>Curated labeled pool</td><td>Same rows, assigned to train/validation/test; no sampling limit on ingestion.</td></tr>
+      <tr><td>Unlabeled holdout</td><td>Separate curated partition</td><td>Untouched and excluded from fitting, training and evaluation.</td></tr>
+      <tr><td>Model inputs</td><td>Mixed numeric and categorical columns</td><td>Numeric features in fitted contract order. Label first; no header or customer ID in CSV.</td></tr>
+      <tr><td>Feature Store</td><td>Empty group on first run, or earlier records</td><td>Same feature values plus five record fields. AWS adds write_time, api_invocation_time and is_deleted to offline storage.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Column comparison</h3>
+  <p>Orange = transformed; red = excluded from model inputs; green = added. Customer IDs and labels are retained separately. One-hot field names below reflect the checked-in schema; fitted category levels determine the actual output, which must match that schema.</p>
+  <div class="overflowBlock" style="overflow-x: auto;"><table class="tg" style="min-width: 1100px;"><thead><tr><th>Source column</th><th>Curated table</th><th>Processed model input</th><th>Feature Store record</th></tr></thead><tbody>
+<tr><td><code>customerid</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded; separate identifiers CSV</td><td>Integral record identifier</td></tr>
+<tr><td><code>churn</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td><td>Not ingested</td></tr>
+<tr><td><code>monthlyrevenue</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>monthlyminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>totalrecurringcharge</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>directorassistedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>overageminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>roamingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>percchangeminutes</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>percchangerevenues</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>droppedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>blockedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>unansweredcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>customercarecalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>threewaycalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>receivedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>outboundcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>inboundcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>peakcallsinout</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>offpeakcallsinout</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>droppedblockedcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>callforwardingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>callwaitingcalls</code></td><td>DOUBLE</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>monthsinservice</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>uniquesubs</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>activesubs</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>servicearea</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;">servicearea — training frequency</td><td>Fractional</td></tr>
+<tr><td><code>handsets</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>handsetmodels</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>currentequipmentdays</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>agehh1</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>agehh2</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Zero → missing; imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>childreninhh</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>childreninhh__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>handsetrefurbished</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>handsetrefurbished__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>handsetwebcapable</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>handsetwebcapable__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>truckowner</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>truckowner__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>rvowner</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>rvowner__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>homeownership</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>homeownership__unknown</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>buysviamailorder</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>buysviamailorder__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>respondstomailoffers</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>respondstomailoffers__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>optoutmailings</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>optoutmailings__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>nonustravel</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>nonustravel__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>ownscomputer</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>ownscomputer__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>hascreditcard</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>hascreditcard__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>retentioncalls</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td><td>Not ingested</td></tr>
+<tr><td><code>retentionoffersaccepted</code></td><td>BIGINT</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td><td>Not ingested</td></tr>
+<tr><td><code>newcellphoneuser</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>newcellphoneuser__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>notnewcellphoneuser</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>notnewcellphoneuser__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>referralsmadebysubscriber</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>incomegroup</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>ownsmotorcycle</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>ownsmotorcycle__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>adjustmentstocreditrating</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>handsetprice</code></td><td>BIGINT</td><td style="background-color: #fff3e0; color: #8a4500;">Numeric; missing values imputed with training median</td><td>Fractional</td></tr>
+<tr><td><code>madecalltoretentionteam</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td><td>Not ingested</td></tr>
+<tr><td><code>creditrating</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>creditrating__2_high</code><br/><code>creditrating__3_good</code><br/><code>creditrating__4_medium</code><br/><code>creditrating__5_low</code><br/><code>creditrating__6_verylow</code><br/><code>creditrating__7_lowest</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>prizmcode</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>prizmcode__rural</code><br/><code>prizmcode__suburban</code><br/><code>prizmcode__town</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>occupation</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>occupation__crafts</code><br/><code>occupation__homemaker</code><br/><code>occupation__other</code><br/><code>occupation__professional</code><br/><code>occupation__retired</code><br/><code>occupation__self</code><br/><code>occupation__student</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>maritalstatus</code></td><td>STRING</td><td style="background-color: #fff3e0; color: #8a4500;"><code>maritalstatus__unknown</code><br/><code>maritalstatus__yes</code></td><td>Fractional one-hot indicators</td></tr>
+<tr><td><code>churn_label</code></td><td>INTEGER</td><td style="background-color: #fff3e0; color: #8a4500;">First CSV column; target, not a feature</td><td>Integral label</td></tr>
+<tr><td><code>split</code></td><td>STRING</td><td style="background-color: #ffebee; color: #b71c1c;">Excluded</td><td>Not ingested</td></tr>
+<tr><td><code>age_unknown</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if either age was zero</td><td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td></tr>
+<tr><td><code>handsetprice_unknown</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if price was missing</td><td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td></tr>
+<tr><td><code>usage_record_missing</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">1 if all six usage fields were missing</td><td style="background-color: #e8f5e9; color: #1b5e20;">Fractional</td></tr>
+<tr><td><code>split_name</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td><td style="background-color: #e8f5e9; color: #1b5e20;">String: train / validation / test</td></tr>
+<tr><td><code>event_time</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td><td style="background-color: #e8f5e9; color: #1b5e20;">Fractional: ingestion timestamp</td></tr>
+<tr><td><code>execution_id</code></td><td>—</td><td style="background-color: #e8f5e9; color: #1b5e20;">Not in model CSV</td><td style="background-color: #e8f5e9; color: #1b5e20;">String: pipeline execution ID</td></tr>
+</tbody></table></div>
+
+  <h2>Files and operation</h2>
+  <p><code>preprocess.py</code> contains the transformation; <code>process.py</code> reads and writes job files; <code>ingest.py</code> sends records. The pipeline calls these files directly. There is no second ingestion path.</p>
+  <p>Infrastructure and execution commands are documented in <cross-reference-widget type="2" nodeId="23" pathLabel="Pipeline / Pipeline"></cross-reference-widget>.</p>
+  <h3>When the feature schema changes</h3>
+  <p>From the repository root, with <code>.env</code> exported, download the actual curated labeled files and regenerate the schema. These are real data operations, not tests. Then bump <code>TF_VAR_feature_version</code> in <code>.env</code>, reload it, and review the pipeline Terraform plan.</p>
+  <pre class="overflowBlock"><code>uv sync
+aws s3 cp "s3://${TF_VAR_output_bucket}/curated/cell2cell/${TF_VAR_curated_version}/split=train/" data/schema-input/ --recursive
+uv run python feature-store/generate_schema.py --curated-directory data/schema-input</code></pre>
+  <p>Use an empty local input directory for a new curated version so old files are not mixed in. The initial schema is carried from the team implementation; it has not been regenerated or executed in this repo yet.</p>
 </body>
-
 </html>
