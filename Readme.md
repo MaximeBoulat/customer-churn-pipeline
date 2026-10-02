@@ -158,7 +158,6 @@ are used.
 | `TF_VAR_preprocessing_contract` | Version recorded in each run's fitted preprocessing contract |
 | `TF_VAR_model_version` | Model artifact output prefix and package metadata |
 | `TF_VAR_execution_role_name` | Existing role, `LabRole` |
-| `TF_VAR_xgboost_image` | One image for processing, training, evaluation and registered inference |
 | `TF_VAR_instance_type` | Processing and training compute, `ml.m5.xlarge` |
 | `TF_VAR_auc_threshold` | Minimum test ROC-AUC for registration, `0.60` |
 

@@ -146,84 +146,203 @@
     </table>
   </div>
 
+  <p>Example:</p>
+
+  <pre class="overflowBlock"><code>s3://aai-540-group-2/
+  ├─ raw/
+  │ └─ cell2cell/
+  │ ├─ cell2celltrain.csv
+  │ ├─ cell2cellholdout.csv
+  │ └─ provenance.json
+  │
+  ├─ curated/
+  │ └─ cell2cell/v1/
+  │ ├─ split=train/
+  │ │ └─ &lt;Parquet file&gt;
+  │ └─ split=holdout/
+  │ └─ &lt;Parquet file&gt;
+  │
+  ├─ preprocessing/
+  │ └─ cell2cell/v1/
+  │ └─ preprocessing_parameters.json
+  │
+  ├─ pipeline/
+  │ ├─ code/steps/
+  │ │ ├─ cell2cell_features.json
+  │ │ ├─ config.py
+  │ │ ├─ evaluate.py
+  │ │ ├─ evaluation.py
+  │ │ ├─ feature_store.py
+  │ │ ├─ feature_store_schema.py
+  │ │ ├─ manifest.py
+  │ │ ├─ preprocess.py
+  │ │ ├─ process.py
+  │ │ └─ stage_manifest.py
+  │ │
+  │ ├─ &lt;05l81yyxliar | 7gl6rlh4pymc | h1hr8su33v5d&gt;/
+  │ │ ├─ execution_manifest.json
+  │ │ ├─ feature-store/
+  │ │ │ └─ feature_store.json
+  │ │ └─ process/
+  │ │ ├─ contract/
+  │ │ │ └─ preprocessing_parameters.json
+  │ │ ├─ identifiers/
+  │ │ │ ├─ train.csv
+  │ │ │ ├─ validation.csv
+  │ │ │ └─ test.csv
+  │ │ ├─ train/train.csv
+  │ │ ├─ validation/validation.csv
+  │ │ └─ test/test.csv
+  │ │
+  │ ├─ pp2pmvd249bs/
+  │ │ ├─ execution_manifest.json
+  │ │ └─ process/
+  │ │ └─ … ← Same preprocessing file layout
+  │ │
+  │ ├─ 20260916T023521Z/
+  │ │ ├─ fitted_preprocess.json
+  │ │ └─ input/
+  │ │ ├─ train.csv
+  │ │ └─ validation.csv
+  │ │
+  │ └─ &lt;20260921T203158Z | 20260924T223912Z | 20260924T230137Z&gt;/
+  │   └─ execution_manifest.json
+  │
+  ├─ models/
+  │ └─ cell2cell/
+  │ ├─ approvals/cell2cell-churn/
+  │ │ ├─ package-1/
+  │ │ │ ├─ approved_contract.json
+  │ │ │ ├─ evaluation.json
+  │ │ │ ├─ model.tar.gz
+  │ │ │ └─ preprocessing_parameters.json
+  │ │ └─ 05l81yyxliar/package-1/
+  │ │ ├─ approved_contract.json
+  │ │ ├─ evaluation.json
+  │ │ ├─ model.tar.gz
+  │ │ └─ preprocessing_parameters.json
+  │ │
+  │ └─ v1/
+  │ ├─ &lt;05l81yyxliar | 7gl6rlh4pymc | h1hr8su33v5d&gt;/
+  │ │ ├─ evaluation.json
+  │ │ └─ xgboost/&lt;training-job&gt;/output/
+  │ │ └─ model.tar.gz
+  │ ├─ input/
+  │ │ ├─ train.csv
+  │ │ └─ validation.csv
+  │ ├─ logistic-regression/
+  │ │ └─ &lt;two training jobs&gt;/
+  │ │ ├─ output/model.tar.gz
+  │ │ ├─ debug-output/…
+  │ │ └─ profiler-output/…
+  │ └─ xgboost/
+  │ └─ &lt;two training jobs&gt;/
+  │   ├─ output/model.tar.gz
+  │   ├─ debug-output/…
+  │   └─ profiler-output/…
+  │
+  ├─ inference/
+  │ └─ cell2cell/
+  │ └─ &lt;20261001T175034Z | 20261001T180713Z&gt;/
+  │   ├─ manifest.json
+  │   ├─ features.csv
+  │   ├─ scores.csv
+  │   └─ _transform/
+  │   ├─ input.csv
+  │   └─ input.csv.out
+  │
+  ├─ monitoring/
+  │ └─ cell2cell/baseline-inputs/05l81yyxliar/
+  │ ├─ manifest.json
+  │ ├─ train.csv
+  │ ├─ validation.csv
+  │ └─ test.csv
+  │
+  ├─ athena-results/
+  │ └─ 155303888042/…
+  ├─ dj/
+  │ ├─ _verscheck.txt
+  │ └─ athena-results/…
+  ├─ mb/
+  │ ├─ athena-results/…
+  │ └─ curated-test/cell2cell/v1/
+  │ ├─ split=train/&lt;Parquet file&gt;
+  │ └─ split=holdout/&lt;Parquet file&gt;
+  │ ├─ cell2cell-logreg-20260924t223912z/
+  │ │ └─ source/sourcedir.tar.gz
+  │ ├─ cell2cell-logreg-20260924t230137z/
+  │ │ └─ source/sourcedir.tar.gz
+  │ ├─ logs/…
+  │ └─ helloworld.txt
+</code></pre>
+
   <p><code>pipeline/</code> is the odd one out: it is keyed by execution rather than by dataset, because it records a run rather than an artifact. Every stage updates the same manifest in turn.</p>
 
   <p><code>models/</code> carries the execution id under the version because a model artifact and its evaluation report belong to the run that produced them. Keying on the version alone means each run silently replaces the last one's evidence, which breaks the guarantee above that a run is reconstructible from its manifest.</p>
 
   <p><code>preprocessing/</code> is the exception: it is published once per contract version, because System 2 reads it to score with the same transform training used. A run keeps its own fitted copy under <code>pipeline/{execution-id}/</code>, and replaces the published contract only when the contract version is deliberately bumped. Rewriting it per run would change what an already-released model is scored with.</p>
 
+  <p>Example:</p>
+
+ 
   <h2>Traceability</h2>
 
   <p><code>pipeline/{execution-id}/execution_manifest.json</code> (<code>src/manifest.py</code>) is the single record mapping one execution to the exact artifact versions it used and produced.</p>
 
   <p><code>used</code> holds the four version axes for the execution, sourced from <code>src/config.py</code> at creation and fixed for the life of the run. <code>update_manifest(execution_id, stage, status, **produced_fields)</code> merges each stage's own fields into <code>produced</code> as a flat dict.</p>
 
-  <pre class="overflowBlock"><code>{
-  "execution_id": "20260924T223912Z",
-  "used": {
+<pre class="overflowBlock"><code>{
+"execution_id": "7gl6rlh4pymc",
+"used": {
     "curated_version": "v1",
     "preprocessing_contract": "v1",
     "feature_version": "v1",
     "model_version": "v1"
-  },
-  "produced": {
+},
+"produced": {
     "model_package_version": null,
-    "recorded_at": "2026-09-21T20:31:58+00:00",
-    "feature_group": {
-      "name": "cell2cell-churn-v1",
-      "arn": "arn:aws:sagemaker:us-east-1:...:feature-group/cell2cell-churn-v1",
-      "status": "Created",
-      "record_identifier": "customerid",
-      "feature_count": 74,
-      "online_store": false
+    "preprocessing": {
+        "feature_count": 70,
+        "split_seed": 540,
+        "split_fractions": {
+            "train": 0.7,
+            "validation": 0.15,
+            "test": 0.15
+        }
     },
-    "offline_store": {
-      "s3_uri": "s3://sagemaker-us-east-1-.../feature-store/cell2cell/v1",
-      "glue_database": "sagemaker_featurestore",
-      "glue_table": "cell2cell_churn_v1_1790022275"
+    "rows_curated": 51047,
+    "feature_group": {
+        "name": "cell2cell-churn-v1",
+        "record_identifier": "customerid",
+        "feature_count": 74
     },
     "ingestion": {
-      "records_written": 51047,
-      "rows_transformed": 51047,
-      "offline_store_count_matched": true
+        "records_written": 2000,
+        "rows_transformed": 35733
     },
-    "preprocessing": {
-      "version": "preprocess/v1",
-      "feature_count": 70,
-      "split_seed": 540,
-      "split_fractions": {"train": 0.7, "validation": 0.15, "test": 0.15}
-    },
-    "preprocessing_contract_key": "preprocessing/cell2cell/v1/preprocessing_parameters.json",
     "records_failed": 0,
-    "logistic_regression": {
-      "training_job_name": "cell2cell-logreg-20260924t223912z",
-      "model_data": "s3://aai-540-group-2/models/cell2cell/v1/{execution-id}/logistic-regression/.../model.tar.gz",
-      "instance_type": "ml.m5.xlarge",
-      "framework_version": "1.2-1",
-      "train_rows": 35733,
-      "validation_rows": 7657
-    },
-    "xgboost": {
-      "training_job_name": "cell2cell-xgb-20260924t223912z",
-      "model_data": "s3://aai-540-group-2/models/cell2cell/v1/{execution-id}/xgboost/.../model.tar.gz",
-      "instance_type": "ml.m5.xlarge",
-      "framework_version": "1.7-1",
-      "train_rows": 35733,
-      "validation_rows": 7657
-    },
-    "bucket": "aai-540-group-2",
-    "using_own_bucket": false
-  },
-  "stages": {
-    "catalog": "pending",
-    "processing": "pending",
-    "feature_store": "completed",
-    "training": "completed",
-    "evaluation": "pending",
-    "registration": "pending",
-    "gate": "pending"
+    "evaluation": {
+        "auc": 0.672108803099396,
+        "pr_auc": 0.4443631834692365,
+        "confusion_matrix": {
+            "tp": 324,
+            "fp": 299,
+            "fn": 1883,
+            "tn": 5151
+        }
+    }
+},
+"stages": {
+      "catalog": "pending",
+      "processing": "completed",
+      "feature_store": "completed",
+      "training": "pending",
+      "evaluation": "completed",
+      "registration": "pending",
+      "gate": "pending"
+    }
   }
-}</code></pre>
+  </code></pre>
 
   <h2>Detailed: every artifact and edge</h2>
 

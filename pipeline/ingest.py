@@ -10,6 +10,7 @@ import time
 import boto3
 from botocore.config import Config
 import pandas as pd
+from stage_manifest import record as record_stage
 
 
 def main():
@@ -44,7 +45,8 @@ def main():
         # The service's schema cache can lag a newly created group briefly.
         for attempt in range(5):
             try:
-                runtime.put_record(FeatureGroupName=args.feature_group, Record=record, TargetStores=["OfflineStore"])
+                # Defaults to the group's enabled stores; this group is offline-only.
+                runtime.put_record(FeatureGroupName=args.feature_group, Record=record)
                 return
             except runtime.exceptions.ValidationError:
                 if attempt == 4:
@@ -78,6 +80,13 @@ def main():
         "offline_location": group["OfflineStoreConfig"]["S3StorageConfig"].get("ResolvedOutputS3Uri"),
         "note": "PutRecord accepted these records. Offline S3 delivery is asynchronous."
     }, indent=2) + "\n")
+    record_stage(args.execution_id, "feature_store",
+        feature_group={"name": args.feature_group,
+                       "record_identifier": "customerid",
+                       "feature_count": len(expected)},
+        ingestion={"records_written": sum(counts.values()),
+                   "rows_transformed": sum(counts.values())},
+        records_failed=0)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,14 @@ locals {
   }
   processing_base = {
     RoleArn = data.aws_iam_role.execution.arn
+    Environment = {
+      BUCKET_NAME            = var.output_bucket
+      LAB_REGION             = var.region
+      CURATED_VERSION        = var.curated_version
+      PREPROCESSING_CONTRACT = var.preprocessing_contract
+      FEATURE_VERSION        = var.feature_version
+      MODEL_VERSION          = var.model_version
+    }
     ProcessingResources = {
       ClusterConfig = { InstanceType = var.instance_type, InstanceCount = 1, VolumeSizeInGB = 30 }
     }
@@ -76,7 +84,7 @@ locals {
           AppSpecification = {
             ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/process.py"]
-            ContainerArguments  = ["--preprocessing-version", var.preprocessing_contract, "--curated-version", var.curated_version, "--feature-version", var.feature_version]
+            ContainerArguments  = ["--preprocessing-version", var.preprocessing_contract, "--curated-version", var.curated_version, "--feature-version", var.feature_version, "--execution-id", local.execution_id]
           }
           ProcessingInputs = [local.code_input, {
             InputName = "curated"
@@ -144,6 +152,7 @@ locals {
           AppSpecification = {
             ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/evaluate.py"]
+            ContainerArguments  = ["--execution-id", local.execution_id]
           }
           ProcessingInputs = [local.code_input, local.process_inputs.test, {
             InputName = "model"

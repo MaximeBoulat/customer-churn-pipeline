@@ -1,5 +1,6 @@
 """Evaluate the trained XGBoost model on the untouched test split."""
 import json
+import argparse
 from pathlib import Path
 import tarfile
 
@@ -8,9 +9,13 @@ import pandas as pd
 from sklearn.metrics import (accuracy_score, average_precision_score, confusion_matrix,
                              f1_score, precision_score, recall_score, roc_auc_score)
 import xgboost as xgb
+from stage_manifest import record as record_stage
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--execution-id", default=None)
+    args = parser.parse_args()
     # Read only the native model member; do not extract arbitrary archive paths.
     with tarfile.open("/opt/ml/processing/input/model/model.tar.gz", "r:gz") as archive:
         members = [m for m in archive.getmembers() if Path(m.name).name == "xgboost-model" and m.isfile()]
@@ -45,6 +50,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "evaluation.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps(report, indent=2))
+    record_stage(args.execution_id, "evaluation",
+        evaluation={"auc": float(values["auc"]),
+                    "pr_auc": float(values["average_precision"]),
+                    "confusion_matrix": report["confusion_matrix"]})
 
 
 if __name__ == "__main__":

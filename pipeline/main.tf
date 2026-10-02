@@ -32,6 +32,9 @@ locals {
     "process.py"    = "${path.module}/process.py"
     "ingest.py"     = "${path.module}/ingest.py"
     "evaluate.py"   = "${path.module}/evaluate.py"
+    "manifest.py"   = "${path.module}/manifest.py"
+    "manifest_config.py" = "${path.module}/manifest_config.py"
+    "stage_manifest.py" = "${path.module}/stage_manifest.py"
   }
 }
 
