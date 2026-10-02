@@ -15,6 +15,7 @@ flowchart TB
         Gate{"AUC gate"}
         Registry["Model package group<br/>PendingManualApproval candidates"]
     end
+    ECR["Amazon ECR<br/>AWS XGBoost container image"]
     S3[("S3<br/>Code, datasets and artifacts")]
     Start --> Operator
     Operator -->|applies| Terraform
@@ -31,6 +32,9 @@ flowchart TB
     Evaluation -->|reports AUC| Gate
     Gate -->|pass: register candidate| Registry
     Gate -->|fail: stop| Failed["Failed execution"]
+    Preparation -->|pulls container image| ECR
+    Training -->|pulls container image| ECR
+    Evaluation -->|pulls container image| ECR
     Preparation -->|reads and writes| S3
     Training -->|reads CSVs, writes model| S3
     Evaluation -->|reads model and test CSV, writes metrics| S3
