@@ -25,5 +25,5 @@ sequenceDiagram
     Terraform->>Pipeline: register DAG as JSON
     Pipeline-->>Terraform: pipeline ready
     Terraform-->>Operator: apply complete
-    Note over Operator: Infrastructure ready; no execution started
+    Note over Operator: Infrastructure ready - no execution started
 ```

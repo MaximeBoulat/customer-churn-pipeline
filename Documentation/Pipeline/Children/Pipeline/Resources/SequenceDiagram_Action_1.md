@@ -44,6 +44,6 @@ sequenceDiagram
         Registry-->>Pipeline: package version
         Note over Registry: Candidate ready for human review
     else AUC below minimum
-        Note over Pipeline: Execution fails; no package registered
+        Note over Pipeline: Execution fails - no package registered
     end
 ```

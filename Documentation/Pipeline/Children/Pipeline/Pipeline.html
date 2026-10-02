@@ -3,11 +3,6 @@
 
 <head>
   <title>Pipeline</title>
-  <style>
-    pre {
-      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    }
-  </style>
 </head>
 
 <body>
@@ -63,7 +58,7 @@
 
   <h2>S3 layout after the stage</h2>
   <p>Green = added; orange = updated on apply. Reads leave existing files unchanged. Do not apply code changes while an execution is using the shared code prefix.</p>
-  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ curated/cell2cell/v1/
 │  ├─ split=train/                         [READ by preprocessing]
 │  └─ split=holdout/                       untouched
