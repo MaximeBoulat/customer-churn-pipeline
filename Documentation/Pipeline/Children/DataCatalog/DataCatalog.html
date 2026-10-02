@@ -33,49 +33,18 @@
 
   <h2>Versioned processes and outputs</h2>
 
-  <p>This stage has one configured output version: <code>CURATED_VERSION</code>. It names the curated dataset's S3 directory. It does not version the SQL, create a run identifier, or give the Glue tables separate versioned names.</p>
+  <p><code>CURATED_VERSION</code> identifies the schema version of both the external table over the raw CSVs and the CTAS that produces the curated dataset. When those schemas change, the version is bumped and the curated output goes into the corresponding S3 folder: <code>curated/cell2cell/{version}/</code>.</p>
 
-  <pre class="overflowBlock"><code>.env: TF_VAR_curated_version=v1
-├─ Terraform: var.curated_version → curated_location output
-└─ Python: config.CURATED_VERSION → config.CURATED_LOCATION
-   └─ 01_create_curated.sql: external_location
-      └─ s3://customer-churn-pipeline-a81b79/curated/cell2cell/v1/</code></pre>
+  <blockquote>
+    <p><strong>Current implementation limitation:</strong> Terraform can be applied again, but the curation script cannot recreate an existing <code>cell2cell_curated</code> table or write into an occupied CTAS destination. Changing <code>CURATED_VERSION</code> from <code>v1</code> to <code>v2</code> selects a new S3 folder, but the fixed table name still exists. Terraform updates the existing raw-table definition rather than creating a separately versioned table.</p>
+    <p>The versioning plan therefore needs a catalog-update procedure, which is not implemented yet. One approach is to keep stable table names, update the raw schema, and recreate the curated table's catalog definition for the new version while retaining the old Parquet under <code>v1/</code>.</p>
+  </blockquote>
 
-  <div class="overflowBlock">
-    <table class="tg">
-      <thead><tr><th>Process or artifact</th><th>Before first run</th><th>After successful run</th><th>What is versioned?</th></tr></thead>
-      <tbody>
-        <tr><td>Terraform provisioning</td><td>Stage resources do not yet exist.</td><td>Glue database, raw table and Athena workgroup exist.</td><td>Configuration files are tracked in Git. Resource names do not include the curated version.</td></tr>
-        <tr><td>SQL curation</td><td>The curated table does not exist and the target S3 prefix is empty.</td><td>Typed Parquet exists under <code>curated/cell2cell/v1/</code>.</td><td><code>CURATED_VERSION</code> selects the output directory; SQL files are tracked in Git.</td></tr>
-        <tr><td>Curated table and training view</td><td>Neither exists.</td><td><code>cell2cell_curated</code> points to the Parquet; <code>vw_cell2cell_training</code> selects from that table.</td><td>Neither name includes a version. The view follows the table it references.</td></tr>
-        <tr><td>Athena query results</td><td>Earlier query results may exist.</td><td>New query result and metadata objects are added under <code>athena-results/</code>.</td><td>Athena uses query identifiers, independently of <code>CURATED_VERSION</code>.</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <h2>S3 layout after the stage</h2>
 
-  <blockquote><p><strong>Running again:</strong> Terraform can be applied again. The curation script cannot simply recreate the existing table or write into an occupied CTAS destination. Changing <code>v1</code> to <code>v2</code> changes the destination, but the fixed table name still exists. This implementation has no automatic version migration or replacement procedure.</p></blockquote>
+  <p>This diagram shows the resulting layout and changes made by a successful first run, rather than a live bucket inventory. Unrelated contents are collapsed. <strong>[READ]</strong> and <strong>[WRITE]</strong> identify access; color identifies change: <span style="background-color: #e8f5e9; color: #1b5e20;">green = added</span>, <span style="background-color: #fff3e0; color: #8a4500;">orange = modified</span>, <span style="background-color: #ffebee; color: #b71c1c;">red = removed</span>. This stage adds objects; it does not modify or delete the source objects.</p>
 
-  <h2>S3 before and after</h2>
 
-  <p>These diagrams describe the changes made by a successful first run, rather than a live bucket inventory. Unrelated contents are collapsed. <strong>[READ]</strong> and <strong>[WRITE]</strong> identify access; color identifies change: <span style="background-color: #e8f5e9; color: #1b5e20;">green = added</span>, <span style="background-color: #fff3e0; color: #8a4500;">orange = modified</span>, <span style="background-color: #ffebee; color: #b71c1c;">red = removed</span>. This stage adds objects; it does not modify or delete the source objects.</p>
-
-  <h3>Before</h3>
-
-  <pre class="overflowBlock">s3://aai-540-group-2/
-├─ raw/
-│  └─ cell2cell/
-│     ├─ cell2celltrain.csv       [READ] labeled source
-│     ├─ cell2cellholdout.csv     [READ] unlabeled source
-│     └─ provenance.json         [EXCLUDED] SQL selects CSV paths only
-└─ …                            unrelated contents collapsed
-
-s3://customer-churn-pipeline-a81b79/
-└─ …                            existing unrelated contents, if any
-
-Target prefix curated/cell2cell/v1/ is empty.
-No query outputs from this run exist yet.</pre>
-
-  <h3>After</h3>
 
   <pre class="overflowBlock">s3://aai-540-group-2/
 ├─ raw/
