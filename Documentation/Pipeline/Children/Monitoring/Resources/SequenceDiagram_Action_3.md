@@ -9,7 +9,7 @@ sequenceDiagram
         participant CW as CloudWatch
     end
     box Storage
-        participant S3 as S3 storage
+        participant S3 as S3 storage  
     end
     Note over Operator,S3: Publish the report and metrics
     Note over Monitor: Batch analysis ready to publish

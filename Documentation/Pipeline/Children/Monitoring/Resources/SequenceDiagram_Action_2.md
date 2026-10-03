@@ -8,7 +8,7 @@ sequenceDiagram
     box AWS
         participant CW as CloudWatch
     end
-    box Storage
+    box Storage 
         participant S3 as S3 storage
     end
     Note over Operator,S3: Analyze a completed batch
@@ -41,10 +41,10 @@ sequenceDiagram
                 Monitor->>Monitor: calculate quality and assess credit-rating comparison
                 Note over Monitor: Drift, quality and group assessment ready to publish
             else No matching labels
-                Note over Monitor: Drift and coverage ready; quality and group comparison unassessed
+                Note over Monitor: Drift and coverage ready<br/>Quality and group comparison unassessed
             end
         else No labels supplied
-            Note over Monitor: Drift ready; quality and group comparison unassessed
+            Note over Monitor: Drift ready<br/>Quality and group comparison unassessed
         end
     end
 ```
