@@ -26,7 +26,37 @@
 
   <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
 
- 
+  <p>The approval contract looks like this:</p>
+
+  <pre class="overflowBlock"><code>{
+  "format_version": 1,
+  "model_package_arn": "arn:aws:sagemaker:us-east-1:155303888042:model-package/cell2cell-churn/1",
+  "model_package_version": 1,
+  "model_version": 1,
+  "pipeline_execution_arn": ".../execution/05l81yyxliar",
+  "inference_image": "683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-xgboost:1.7-1",
+  "input_schema": {
+      "customerid": "identifier",
+      "monthlyrevenue": "numeric",
+      "servicearea": "categorical",
+      "…": "remaining input columns"
+  },
+  "model_artifact": {
+      "source_uri": ".../original-training-output/model.tar.gz",
+      "uri": ".../05l81yyxliar/package-1/model.tar.gz"
+  },
+  "preprocessing": {
+      "source_uri": ".../process/contract/preprocessing_parameters.json",
+      "uri": ".../05l81yyxliar/package-1/preprocessing_parameters.json"
+  },
+  "evaluation": {
+      "source_uri": ".../v1/05l81yyxliar/evaluation.json",
+      "uri": ".../05l81yyxliar/package-1/evaluation.json"
+  },
+  "preprocessing_version": "preprocess/v1",
+  "recalibration_factor": 1.0
+}
+  </code></pre>
 
   <h3>Artifacts and effects analysis</h3>
 
@@ -52,7 +82,7 @@
   <p>Green indicates added artifacts. The originals remain in their run folders. Pinned copies use S3-managed encryption, matching the team's approval implementation.</p>
 
   <h4>Dataset before and after</h4>
-  
+
   <p>No dataset rows, columns or splits change. This step publishes the approved model's files for downstream use.</p>
 </body>
 
