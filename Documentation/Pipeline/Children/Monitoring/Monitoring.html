@@ -1,14 +1,94 @@
 <!DOCTYPE html>
 <html>
-
-<head>
-
-  <title>Monitoring</title>
-
-</head>
-
+<head><title>Monitoring</title></head>
 <body>
-
+<h2>Feature overview</h2>
+<p>System 3 examines the completed outputs of <cross-reference-widget type="2" nodeId="24" pathLabel="Batch transform">Batch transform</cross-reference-widget>. It asks whether the input features have changed, whether predictions remain useful when actual churn labels arrive, and whether outreach differs between credit-rating groups. It publishes a report to S3 and summary metrics to CloudWatch.</p>
+<p>The calculations run locally. This follows PR #56's monitoring approach; it does not provision a SageMaker monitoring job, change the approved cutoff or retrain the model.</p>
+<h2>Component analysis</h2>
+<h3>Diagram</h3>
+<diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+<h3>Key AWS actors and concepts</h3>
+<p>CloudWatch stores numeric metrics over time. A dashboard displays them; an alarm checks a metric against a configured limit. S3 holds the detailed report and the baseline: frozen feature distributions from the approved model's training data.</p>
+<h2>Sequence analysis</h2>
+<h3>Provision monitoring</h3>
+<h4>Overview</h4>
+<diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+<p>Terraform creates the dashboard and alarms. Applying Terraform does not run monitoring. The operator runs the monitoring script after a completed batch.</p>
+<table><thead><tr><th>Alarm</th><th>Condition</th></tr></thead><tbody>
+<tr><td>Feature drift</td><td>Maximum feature PSI ≥ 0.2.</td></tr>
+<tr><td>Quality</td><td>F2 &lt; 0.0017, when labels permit measurement. This is PR #56's starting floor, not a floor calibrated to our model.</td></tr>
+<tr><td>Credit-rating comparison</td><td>Selection-rate ratio outside 0.8–1.25, with at least 20 flagged labelled rows and a measurable ratio.</td></tr>
+<tr><td>No outreach</td><td>No customers flagged.</td></tr>
+<tr><td>Stale monitoring</td><td>No successful live monitoring measurement over seven daily periods.</td></tr>
+</tbody></table>
+<p>Alarms use live metrics only. Missing quality or group-comparison metrics are not treated as breaches: an OK alarm does not establish that quality was assessed. The dashboard includes assessment indicators. Alarms have no email notifications or automatic retraining actions.</p>
+<h4>Artifacts and effects analysis</h4>
+<h5>Versioned processes and outputs</h5>
+<p>Terraform manages <code>churn-rebuild-monitoring</code> and five alarms under the project prefix. Monitoring limits come from the exported <code>.env</code> settings.</p>
+<h5>S3 layout after the step</h5>
+<p>No S3 reads or writes.</p>
+<h5>Dataset before and after</h5>
+<p>No dataset changes.</p>
+<h3>Analyze a completed batch</h3>
+<h4>Overview</h4>
+<diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
+<p>The batch's <code>manifest.json</code> identifies its approved contract and training execution. On the first monitoring run for that execution, the script reads its training CSV and saves a baseline. Later batches reuse that baseline.</p>
+<p>Population Stability Index (PSI) compares the proportion of records in each feature bin: training proportions <latex-widget inline="true">p_i</latex-widget> against batch proportions <latex-widget inline="true">q_i</latex-widget>. Numeric features use fixed bins; binary and other low-cardinality features use value counts. A small smoothing value avoids division by zero.</p>
+<latex-widget>\mathrm{PSI}=\sum_i(q_i-p_i)\ln\left(\frac{q_i}{p_i}\right)</latex-widget>
+<p>PSI below 0.1 is treated as stable, 0.1 to below 0.2 as a warning, and 0.2 or above as an investigation signal. Drift describes changed input distributions; it does not by itself prove worse predictions.</p>
+<p>With labels, the script joins <code>customerid,churn_label</code> to the batch's existing outreach flags. It records match coverage, the confusion matrix, precision, recall, F1, F2 and accuracy. It neither selects a new cutoff nor adjusts the scores.</p>
+<p>The labelled subset also supports a credit-rating comparison: the first category in the pinned encoding is the reference group, compared with all remaining categories. DI is the other group's flag rate divided by the reference group's flag rate. The report also records differences in flag rate (DPPL), recall (RD) and accuracy (AD). These are investigation signals, not a declaration of fairness. The group is reconstructed from encoded features, so an unseen category encoded as all zeros is indistinguishable from the reference category.</p>
+<p>The current holdout has no labels, so ordinary monitoring reports drift and outreach counts only. An optional replay uses the pinned model on its already-held-out test split and supplies its known labels. This demonstrates quality and group measurements; it does not provide new production outcomes. Replay metrics are separated from live metrics.</p>
+<h4>Artifacts and effects analysis</h4>
+<h5>Versioned processes and outputs</h5>
+<p>The baseline is keyed by training execution ID. It records the model package, reference CSV, feature bins and proportions, row count, and preprocessing/model versions. Batch reports use the batch run ID. No new global version is introduced.</p>
+<h5>S3 layout after the step</h5>
+<pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ inference/cell2cell/&lt;batch-run-id&gt;/
+│  ├─ manifest.json                                         [READ]
+│  ├─ scores.csv                                           [READ]
+│  └─ features.csv                                         [READ]
+├─ models/cell2cell/approvals/…/
+│  ├─ approved_contract.json                               [READ]
+│  └─ preprocessing_parameters.json                        [READ]
+├─ pipeline/&lt;training-execution-id&gt;/process/train/
+│  └─ train.csv                                            [READ on first run]
+└─ monitoring/cell2cell/baselines/&lt;training-execution-id&gt;/
+   <span style="background-color: #e8f5e9; color: #1b5e20;">└─ baseline.json                                         [WRITE once; then READ]</span></pre>
+<p>Green indicates an added artifact. Optional labels are read from the supplied S3 URI. The replay helper adds a separate <code>inference/cell2cell/&lt;replay-run-id&gt;/</code> folder containing <code>scores.csv</code>, <code>features.csv</code>, <code>labels.csv</code> and <code>manifest.json</code>; its manifest explicitly marks it as replay.</p>
+<h5>Dataset before and after</h5>
+<div class="overflowBlock"><table><thead><tr><th>Input</th><th>Use</th><th>Result</th></tr></thead><tbody>
+<tr><td>Training: label + ordered features</td><td>Exclude label; fit distributions</td><td>Aggregate baseline; training rows unchanged</td></tr>
+<tr><td>Batch features: customerid + ordered features</td><td>Exclude customerid; compare distributions</td><td>One PSI value per feature; no columns added, changed or dropped in S3</td></tr>
+<tr><td>Scores: customerid, churn_probability, outreach_flag, model_version, preprocessing_version, scored_at</td><td>Count existing flags; join labels if present</td><td>Original six columns unchanged</td></tr>
+<tr><td>Optional labels: customerid, churn_label</td><td>One-to-one join by customer ID</td><td>Only matching rows enter quality/group calculations; coverage is recorded</td></tr>
+</tbody></table></div>
+<p>No split is created or changed. The optional replay uses the existing test split and its matching identifier file; it does not train a model.</p>
+<h3>Publish the report and metrics</h3>
+<h4>Overview</h4>
+<diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
+<p>The script writes <code>drift_report.json</code>, then publishes aggregate metrics under <code>churn-rebuild/ChurnMonitoring</code>. Despite its filename, the report includes drift, outreach counts, label coverage, quality and group comparisons. Quality and bias are null when labels are unavailable.</p>
+<p>The dashboard displays separate <code>Source=live</code> and <code>Source=replay</code> series. The operator investigates the report before deciding whether another training run is warranted.</p>
+<h4>Artifacts and effects analysis</h4>
+<h5>Versioned processes and outputs</h5>
+<p>Each batch has one report. Rerunning monitoring for the same batch replaces that report and publishes another metric point, allowing labels to be added later. The training execution manifest and approved contract remain unchanged.</p>
+<h5>S3 layout after the step</h5>
+<pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ …
+└─ monitoring/cell2cell/
+   ├─ baselines/&lt;training-execution-id&gt;/baseline.json
+   <span style="background-color: #e8f5e9; color: #1b5e20;">└─ &lt;batch-run-id&gt;/drift_report.json                        [WRITE]</span></pre>
+<p>Green indicates the report added on the first run; a subsequent run updates that same file.</p>
+<h5>Dataset before and after</h5>
+<p>Batch rows and columns remain unchanged. Only aggregate results are published.</p>
+<table><thead><tr><th>Report field</th><th>Contents</th></tr></thead><tbody>
+<tr><td>run_id, replay, source, model_package_arn, baseline_uri, threshold</td><td>Batch/model identity, reference baseline and the existing cutoff information</td></tr>
+<tr><td>drift</td><td>PSI by feature, maximum PSI, worst feature, warning/investigation lists and reference/batch counts</td></tr>
+<tr><td>flags</td><td>Rows, flagged count and flag rate</td></tr>
+<tr><td>label_source, label_join</td><td>Labels URI, matched/unmatched counts and coverage, or null</td></tr>
+<tr><td>quality</td><td>Confusion matrix and quality metrics, or null</td></tr>
+<tr><td>bias</td><td>Assessment status, group comparisons and reference rating, or null</td></tr>
+</tbody></table>
 </body>
-
 </html>

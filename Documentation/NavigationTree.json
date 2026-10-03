@@ -56,9 +56,9 @@
             "id": 25,
             "type": "article",
             "title": "Monitoring",
-            "lastModified": "2026-10-01",
+            "lastModified": "2026-10-02",
             "folderName": "Monitoring",
-            "description": "",
+            "description": "Compare batch features with training distributions and publish quality, group comparisons and CloudWatch monitoring.",
             "url": "Monitoring.html"
           }
         ]
