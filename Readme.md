@@ -330,8 +330,7 @@ training execution manifest.
 
 ## Monitoring (System 3)
 
-Adapted from [PR #56](https://github.com/marstonsward/aai-540-customer-churn/pull/56)
-at `0740804`. Terraform provisions CloudWatch; the Python script analyzes a
+Terraform provisions CloudWatch; the Python script analyzes a
 completed batch locally and writes its report and metrics. It does not launch
 a SageMaker job or retrain the model.
 

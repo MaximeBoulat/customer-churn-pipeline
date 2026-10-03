@@ -5,6 +5,105 @@
 <h2>Feature overview</h2>
 <p>System 3 examines the completed outputs of <cross-reference-widget type="2" nodeId="24" pathLabel="Batch transform">Batch transform</cross-reference-widget>. It asks whether the input features have changed, whether predictions remain useful when actual churn labels arrive, and whether outreach differs between credit-rating groups. It publishes a report to S3 and summary metrics to CloudWatch.</p>
 <p>The calculations run locally. This follows PR #56's monitoring approach; it does not provision a SageMaker monitoring job, change the approved cutoff or retrain the model.</p>
+<p>The table below describes the <strong>actual implementation in this personal repo</strong>, including the gaps against System 2’s intended monitoring contract. Batch filenames refer to <code>s3://customer-churn-pipeline-a81b79/inference/cell2cell/&lt;batch-run-id&gt;/</code>; other paths are relative to that bucket’s root. The pinned preprocessing file is located through the approved contract’s <code>preprocessing.uri</code>.</p>
+
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Metric / monitoring requirement</th>
+          <th>How it is calculated</th>
+          <th>Input sources</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Feature PSI; maximum PSI; affected-feature count</td>
+          <td><latex-widget inline="true">\mathrm{PSI}=\sum_i(q_i-p_i)\ln(q_i/p_i)</latex-widget>. Both proportions are floored at <latex-widget inline="true">10^{-6}</latex-widget>. Take the maximum across features for <code>MaxFeaturePSI</code> and count features at or above the configured investigation threshold for <code>FeaturesInvestigate</code>.</td>
+          <td><code>features.csv</code> compared with <code>monitoring/cell2cell/baselines/&lt;training-execution-id&gt;/baseline.json</code>. The baseline is fitted from <code>pipeline/&lt;training-execution-id&gt;/process/train/train.csv</code>, excluding its label. Bins/categories remain fixed.</td>
+        </tr>
+        <tr>
+          <td>Score drift — not implemented</td>
+          <td>No score-distribution comparison is currently calculated.</td>
+          <td><code>scores.csv → churn_probability</code> is available, but no reference score distribution is fitted or compared.</td>
+        </tr>
+        <tr>
+          <td>Scored count, flagged count and flag rate</td>
+          <td><code>RowsScored</code> = number of score rows; <code>Flagged</code> = sum of stored flags; <code>FlagRate</code> = flagged / scored. <code>NobodyFlagged</code> = 1 when the flagged count is zero, otherwise 0.</td>
+          <td><code>scores.csv → outreach_flag</code>; counts checked against <code>manifest.json → rows, flagged</code>.</td>
+        </tr>
+        <tr>
+          <td>Top-k expected-rate comparison — not implemented</td>
+          <td>The actual flag rate is reported, but it is not compared with the expected top-k rate and the dashboard does not identify the fallback policy.</td>
+          <td><code>manifest.json → threshold.outreach_policy, threshold.top_k</code> is retained in the report’s <code>threshold</code> block.</td>
+        </tr>
+        <tr>
+          <td>Label coverage and reconciliation</td>
+          <td>Coverage = matched customers / scored customers. Also count scored customers without labels and supplied labels without scores.</td>
+          <td><code>scores.csv → customerid</code> joined to the labels CSV’s <code>customerid</code>. Labels come from the explicit labels S3 URI or replay <code>manifest.json → labels_uri</code>.</td>
+        </tr>
+        <tr>
+          <td>Confusion matrix</td>
+          <td>TP: flag 1, label 1; FP: flag 1, label 0; FN: flag 0, label 1; TN: flag 0, label 0. The flag is consumed as written, not recalculated.</td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>Precision</td>
+          <td><latex-widget inline="true">\frac{TP}{TP+FP}</latex-widget></td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>Recall</td>
+          <td><latex-widget inline="true">\frac{TP}{TP+FN}</latex-widget></td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>Accuracy</td>
+          <td><latex-widget inline="true">\frac{TP+TN}{TP+FP+FN+TN}</latex-widget></td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>F1 and F2</td>
+          <td><latex-widget inline="true">F_1=\frac{2TP}{2TP+FP+FN}</latex-widget>; <latex-widget inline="true">F_2=\frac{5TP}{5TP+FP+4FN}</latex-widget>. F2 gives more weight to recall.</td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>Predicted positive rate on labelled rows</td>
+          <td>Flagged matched customers / all matched customers. This can differ from the whole-batch flag rate when labels cover only part of the batch.</td>
+          <td><code>scores.csv → outreach_flag</code> and labels CSV <code>churn_label</code>, joined one-to-one on <code>customerid</code>. Only matching rows are used.</td>
+        </tr>
+        <tr>
+          <td>Credit-rating selection ratio (DI) and flag-rate difference (DPPL)</td>
+          <td>Let A be the first credit-rating category in the pinned encoding and D all remaining categories. With group flag rates <latex-widget inline="true">r_A</latex-widget> and <latex-widget inline="true">r_D</latex-widget>: <latex-widget inline="true">DI=r_D/r_A</latex-widget> and <latex-widget inline="true">DPPL=r_A-r_D</latex-widget>. <code>FourFifthsBreach</code> is 1 if DI is outside 0.8–1.25. Assessment requires at least 20 flagged labelled rows by default, both groups and a nonzero reference flag rate.</td>
+          <td>The same labelled join, plus <code>features.csv → creditrating__…</code> and the pinned <code>preprocessing_parameters.json → category_levels.creditrating</code>. This implementation reconstructs credit rating from encoded features; it does not join raw demographic columns.</td>
+        </tr>
+        <tr>
+          <td>Credit-rating recall difference (RD) and accuracy difference (AD)</td>
+          <td><latex-widget inline="true">RD=\mathrm{Recall}_A-\mathrm{Recall}_D</latex-widget>; <latex-widget inline="true">AD=\mathrm{Accuracy}_A-\mathrm{Accuracy}_D</latex-widget>. Also record each group’s matched row count.</td>
+          <td>The same labelled join, plus <code>features.csv → creditrating__…</code> and the pinned <code>preprocessing_parameters.json → category_levels.creditrating</code>.</td>
+        </tr>
+        <tr>
+          <td>Assessment indicators</td>
+          <td><code>QualityAssessed</code> = 1 when matching labels produced quality metrics. <code>BiasAssessed</code> = 1 when the credit-rating comparison meets its assessment conditions. Otherwise each is 0.</td>
+          <td>The label-join result and group-assessment result from the calculations above.</td>
+        </tr>
+        <tr>
+          <td>Monitoring success / freshness</td>
+          <td><code>JobSucceeded</code> publishes 1 after analysis and report writing. The stale alarm checks whether live success counts remain below 1 across seven daily periods by default. No explicit failure metric is published.</td>
+          <td>Completion of the local monitoring script; CloudWatch stores metric timestamps. <code>manifest.json → replay</code> determines whether the metric is live or replay.</td>
+        </tr>
+        <tr>
+          <td>Baseline per model — implemented reference association</td>
+          <td>Save one feature baseline per training execution and verify its model package matches the batch. This is not a numeric metric.</td>
+          <td><code>manifest.json → execution_id, model_package_arn, approved_contract_uri</code>; the approved contract and pinned preprocessing; <code>monitoring/cell2cell/baselines/&lt;training-execution-id&gt;/baseline.json</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+<p>TP, FP, FN and TN mean true positives, false positives, false negatives and true negatives. Positive means an outreach flag of 1; actual positive means a churn label of 1. Without matching labels, quality and group comparisons are unassessed. Undefined precision/recall ratios are stored as null and omitted from CloudWatch; F1/F2 return zero if their denominator is zero.</p>
+<p>Detailed results go to <code>monitoring/cell2cell/&lt;batch-run-id&gt;/drift_report.json</code>. CloudWatch receives the aggregate metrics named above, including precision, recall, accuracy, F1, F2 and DI; individual feature PSI, confusion counts, labelled predicted-positive rate, DPPL, RD and AD remain in the S3 report. The dashboard shows maximum PSI, flag rate, F2, DI, label coverage, assessment indicators and scored count.</p>
+
 <h2>Component analysis</h2>
 <h3>Diagram</h3>
 <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>

@@ -47,7 +47,7 @@
             "id": 24,
             "type": "article",
             "title": "Batch transform",
-            "lastModified": "2026-10-02",
+            "lastModified": "2026-10-03",
             "folderName": "BatchTransform",
             "description": "Run batch inference on curated holdout using the pinned approved model and publish scores for monitoring.",
             "url": "BatchTransform.html"
@@ -56,7 +56,7 @@
             "id": 25,
             "type": "article",
             "title": "Monitoring",
-            "lastModified": "2026-10-02",
+            "lastModified": "2026-10-03",
             "folderName": "Monitoring",
             "description": "Compare batch features with training distributions and publish quality, group comparisons and CloudWatch monitoring.",
             "url": "Monitoring.html"
