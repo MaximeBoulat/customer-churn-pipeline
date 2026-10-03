@@ -1,7 +1,7 @@
 ```mermaid
 sequenceDiagram
     box Local machine
-        actor Operator
+        participant Operator
         participant Terraform
         participant Monitor as Monitoring script
     end
@@ -9,9 +9,13 @@ sequenceDiagram
         participant CW as CloudWatch
     end
     box Storage
-        participant S3
+        participant S3 as S3 storage
     end
-    Operator->>Terraform: Apply monitoring configuration
-    Terraform->>CW: Create dashboard and five alarms
-    CW-->>Terraform: Resources ready
+    Note over Operator,S3: Provision monitoring
+    Note over Operator: Operator applies monitoring configuration
+    Operator->>Terraform: provision monitoring
+    Terraform->>CW: create dashboard and five alarms
+    CW-->>Terraform: dashboard and alarms ready
+    Terraform-->>Operator: provisioning complete
+    Note over Operator: Monitoring infrastructure ready
 ```

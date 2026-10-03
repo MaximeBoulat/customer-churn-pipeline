@@ -15,13 +15,38 @@
 <h4>Overview</h4>
 <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
 <p>Terraform creates the dashboard and alarms. Applying Terraform does not run monitoring. The operator runs the monitoring script after a completed batch.</p>
-<table><thead><tr><th>Alarm</th><th>Condition</th></tr></thead><tbody>
-<tr><td>Feature drift</td><td>Maximum feature PSI ≥ 0.2.</td></tr>
-<tr><td>Quality</td><td>F2 &lt; 0.0017, when labels permit measurement. This is PR #56's starting floor, not a floor calibrated to our model.</td></tr>
-<tr><td>Credit-rating comparison</td><td>Selection-rate ratio outside 0.8–1.25, with at least 20 flagged labelled rows and a measurable ratio.</td></tr>
-<tr><td>No outreach</td><td>No customers flagged.</td></tr>
-<tr><td>Stale monitoring</td><td>No successful live monitoring measurement over seven daily periods.</td></tr>
-</tbody></table>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Alarm</th>
+          <th>Condition</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Feature drift</td>
+          <td>Maximum feature PSI ≥ 0.2.</td>
+        </tr>
+        <tr>
+          <td>Quality</td>
+          <td>F2 &lt; 0.0017, when labels permit measurement. This is PR #56's starting floor, not a floor calibrated to our model.</td>
+        </tr>
+        <tr>
+          <td>Credit-rating comparison</td>
+          <td>Selection-rate ratio outside 0.8–1.25, with at least 20 flagged labelled rows and a measurable ratio.</td>
+        </tr>
+        <tr>
+          <td>No outreach</td>
+          <td>No customers flagged.</td>
+        </tr>
+        <tr>
+          <td>Stale monitoring</td>
+          <td>No successful live monitoring measurement over seven daily periods.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 <p>Alarms use live metrics only. Missing quality or group-comparison metrics are not treated as breaches: an OK alarm does not establish that quality was assessed. The dashboard includes assessment indicators. Alarms have no email notifications or automatic retraining actions.</p>
 <h4>Artifacts and effects analysis</h4>
 <h5>Versioned processes and outputs</h5>
@@ -58,12 +83,39 @@
    <span style="background-color: #e8f5e9; color: #1b5e20;">└─ baseline.json                                         [WRITE once; then READ]</span></pre>
 <p>Green indicates an added artifact. Optional labels are read from the supplied S3 URI. The replay helper adds a separate <code>inference/cell2cell/&lt;replay-run-id&gt;/</code> folder containing <code>scores.csv</code>, <code>features.csv</code>, <code>labels.csv</code> and <code>manifest.json</code>; its manifest explicitly marks it as replay.</p>
 <h5>Dataset before and after</h5>
-<div class="overflowBlock"><table><thead><tr><th>Input</th><th>Use</th><th>Result</th></tr></thead><tbody>
-<tr><td>Training: label + ordered features</td><td>Exclude label; fit distributions</td><td>Aggregate baseline; training rows unchanged</td></tr>
-<tr><td>Batch features: customerid + ordered features</td><td>Exclude customerid; compare distributions</td><td>One PSI value per feature; no columns added, changed or dropped in S3</td></tr>
-<tr><td>Scores: customerid, churn_probability, outreach_flag, model_version, preprocessing_version, scored_at</td><td>Count existing flags; join labels if present</td><td>Original six columns unchanged</td></tr>
-<tr><td>Optional labels: customerid, churn_label</td><td>One-to-one join by customer ID</td><td>Only matching rows enter quality/group calculations; coverage is recorded</td></tr>
-</tbody></table></div>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Input</th>
+          <th>Use</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Training: label + ordered features</td>
+          <td>Exclude label; fit distributions</td>
+          <td>Aggregate baseline; training rows unchanged</td>
+        </tr>
+        <tr>
+          <td>Batch features: <code>customerid</code> + ordered features</td>
+          <td>Exclude <code>customerid</code>; compare distributions</td>
+          <td>One PSI value per feature; no columns added, changed or dropped in S3</td>
+        </tr>
+        <tr>
+          <td>Scores: <code>customerid</code>, <code>churn_probability</code>, <code>outreach_flag</code>, <code>model_version</code>, <code>preprocessing_version</code>, <code>scored_at</code></td>
+          <td>Count existing flags; join labels if present</td>
+          <td>Original six columns unchanged</td>
+        </tr>
+        <tr>
+          <td>Optional labels: <code>customerid</code>, <code>churn_label</code></td>
+          <td>One-to-one join by customer ID</td>
+          <td>Only matching rows enter quality/group calculations; coverage is recorded</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 <p>No split is created or changed. The optional replay uses the existing test split and its matching identifier file; it does not train a model.</p>
 <h3>Publish the report and metrics</h3>
 <h4>Overview</h4>
@@ -82,13 +134,41 @@
 <p>Green indicates the report added on the first run; a subsequent run updates that same file.</p>
 <h5>Dataset before and after</h5>
 <p>Batch rows and columns remain unchanged. Only aggregate results are published.</p>
-<table><thead><tr><th>Report field</th><th>Contents</th></tr></thead><tbody>
-<tr><td>run_id, replay, source, model_package_arn, baseline_uri, threshold</td><td>Batch/model identity, reference baseline and the existing cutoff information</td></tr>
-<tr><td>drift</td><td>PSI by feature, maximum PSI, worst feature, warning/investigation lists and reference/batch counts</td></tr>
-<tr><td>flags</td><td>Rows, flagged count and flag rate</td></tr>
-<tr><td>label_source, label_join</td><td>Labels URI, matched/unmatched counts and coverage, or null</td></tr>
-<tr><td>quality</td><td>Confusion matrix and quality metrics, or null</td></tr>
-<tr><td>bias</td><td>Assessment status, group comparisons and reference rating, or null</td></tr>
-</tbody></table>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Report field</th>
+          <th>Contents</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>run_id</code>, <code>replay</code>, <code>source</code>, <code>model_package_arn</code>, <code>baseline_uri</code>, <code>threshold</code></td>
+          <td>Batch/model identity, reference baseline and the existing cutoff information</td>
+        </tr>
+        <tr>
+          <td><code>drift</code></td>
+          <td>PSI by feature, maximum PSI, worst feature, warning/investigation lists and reference/batch counts</td>
+        </tr>
+        <tr>
+          <td><code>flags</code></td>
+          <td>Rows, flagged count and flag rate</td>
+        </tr>
+        <tr>
+          <td><code>label_source</code>, <code>label_join</code></td>
+          <td>Labels URI, matched/unmatched counts and coverage, or null</td>
+        </tr>
+        <tr>
+          <td><code>quality</code></td>
+          <td>Confusion matrix and quality metrics, or null</td>
+        </tr>
+        <tr>
+          <td><code>bias</code></td>
+          <td>Assessment status, group comparisons and reference rating, or null</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </body>
 </html>
