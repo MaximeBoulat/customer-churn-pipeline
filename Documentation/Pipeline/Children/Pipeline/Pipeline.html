@@ -533,19 +533,33 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Overview</h4>
 
   <diagram-widget fileName="SequenceDiagram_Action_5.md"></diagram-widget>
-  <p>The model predicts probabilities for the test split. Evaluation reports AUC and uses a classification threshold of <code>0.5</code> for precision, recall, F1, accuracy and the confusion matrix. Recalibration is <code>1.0</code>, meaning no adjustment.</p>
+  <p>The model emits raw scores for validation customers. Evaluate chooses a cutoff using those scores and the known validation labels, then applies that fixed cutoff to test predictions to calculate the confusion matrix, precision, recall, F1 and accuracy. The test results do not influence the cutoff. ROC-AUC is calculated across thresholds from the test scores; the quality gate checks AUC independently of the selected cutoff.</p>
+  <p><strong>Choosing the cutoff.</strong> At each candidate cutoff, TPR is the fraction of churners flagged and FPR is the fraction of non-churners flagged. The calculation assumes 2% churn in production, $500 per missed churner and $100 per contact, including correctly contacted churners. Estimated cost per customer is:</p>
+  <latex-widget inline="false">C(t)=0.02[1-\mathrm{TPR}(t)]\,500+0.02\,\mathrm{TPR}(t)\,100+0.98\,\mathrm{FPR}(t)\,100</latex-widget>
+  <p>The selected cutoff minimizes this cost on validation. Contacting nobody is also a candidate, costing <latex-widget inline="true">0.02\times500=10</latex-widget> dollars per customer. Equal-cost ties favor fewer contacts. These are illustrative assumptions: the calculation treats contacting a churner as avoiding the $500 loss, without separately modeling whether the offer succeeds.</p>
+  <p>If contacting nobody is cheapest, the team's policy overrides that choice: use the 95th percentile of validation scores by default, targeting approximately the highest-scoring 5%. The fraction is configurable through Terraform's <code>outreach_top_k</code> variable (default <code>0.05</code>). The report retains <code>contact_nobody=true</code> and records <code>outreach_policy="top_k"</code>, the fallback's cost and the no-contact cost. This fallback is not cost-optimal. Its fixed cutoff carries forward; it does not guarantee that 5% of test or production customers are flagged.</p>
+  <p><strong>Why prevalence matters.</strong> The supplied training population contains roughly 28.8% churners. Its confusion-matrix counts therefore do not describe a production population with 2% churn. The cost calculation uses validation TPR and FPR, weighted by 2% churners and 98% non-churners. This assumes those conditional rates carry over to production.</p>
+  <p><strong>Bayesian interpretation: probabilities versus decisions.</strong> A fixed trained model gives the same score for the same features. But the probability learned during training depends on how frequently churn occurs among customers with those features. Bayes' rule expresses this as:</p>
+  <latex-widget inline="false">\frac{P(Y=1\mid x)}{P(Y=0\mid x)}=\frac{P(x\mid Y=1)}{P(x\mid Y=0)}\frac{\pi}{1-\pi}</latex-widget>
+  <p>Here <latex-widget inline="true">\pi=P(Y=1)</latex-widget> is prevalence. If sampling changes only the class proportions, leaving the feature distribution within each class unchanged, calibrated sample probabilities could be adjusted to production probabilities using:</p>
+  <latex-widget inline="false">k=\frac{\pi_{\mathrm{prod}}/(1-\pi_{\mathrm{prod}})}{\pi_{\mathrm{sample}}/(1-\pi_{\mathrm{sample}})},\qquad p_{\mathrm{prod}}=\frac{k\,p_{\mathrm{sample}}}{1-p_{\mathrm{sample}}+k\,p_{\mathrm{sample}}}</latex-widget>
+  <p>For 2% versus 28.8%, <latex-widget inline="true">k\approx0.0505</latex-widget>; a sample probability of 0.80 would become about 0.168. This changes the probability scale, not customer ranking. Applying the same monotonic transformation to both scores and cutoff would preserve the contact decisions.</p>
+  <p><strong>This probability adjustment is not implemented here or in the team's current pipeline.</strong> Recalibration remains <code>1.0</code>. The implemented method leaves scores unchanged and accounts for prevalence in the cost calculation used to choose the cutoff. Passing the AUC gate does not establish that contacting customers is economically beneficial.</p>
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p>The evaluation report belongs to the same model version and execution as the trained artifact.</p>
   <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
-├─ pipeline/{execution-id}/process/test/test.csv [READ]
+├─ pipeline/{execution-id}/
+│  ├─ process/validation/validation.csv         [READ]
+│  ├─ process/test/test.csv                     [READ]
+<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ execution_manifest.json                  [WRITE]</span>
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  ├─ &lt;training-job-name&gt;/output/model.tar.gz   [READ]
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ evaluation/evaluation.json               [WRITE]</span>
 └─ …</pre>
   <h5>Dataset before and after</h5>
-  <p>The test rows and columns remain unchanged. The output is a metrics report; no transformed dataset is created.</p>
+  <p>Validation and test rows and columns remain unchanged. The evaluation report records the selected cutoff, its cost and fallback policy, test metrics at that cutoff, and metrics projected to 2% prevalence. The manifest records the cutoff, policy and evaluation results.</p>
 
 
   <h3>Quality gate</h3>
@@ -553,7 +567,7 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Overview</h4>
 
   <diagram-widget fileName="SequenceDiagram_Action_6.md"></diagram-widget>
-  <p>The gate compares test AUC with <code>TF_VAR_auc_threshold</code>, currently <code>0.60</code>. Passing permits registration; failing ends the execution without registering a package. This is separate from the <code>0.5</code> classification threshold used in evaluation.</p>
+  <p>The gate compares test AUC with <code>TF_VAR_auc_threshold</code>, currently <code>0.60</code>. Passing permits registration; failing ends the execution without registering a package. This is independent of the classification cutoff selected on validation and used in evaluation.</p>
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p>No new artifact version is created. The pass/fail result is recorded in the pipeline execution.</p>

@@ -152,9 +152,9 @@ locals {
           AppSpecification = {
             ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/evaluate.py"]
-            ContainerArguments  = ["--execution-id", local.execution_id]
+            ContainerArguments  = ["--execution-id", local.execution_id, "--top-k", tostring(var.outreach_top_k)]
           }
-          ProcessingInputs = [local.code_input, local.process_inputs.test, {
+          ProcessingInputs = [local.code_input, local.process_inputs.validation, local.process_inputs.test, {
             InputName = "model"
             S3Input = {
               S3Uri                  = { Get = "Steps.Train.ModelArtifacts.S3ModelArtifacts" }

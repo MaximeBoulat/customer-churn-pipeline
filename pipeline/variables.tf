@@ -40,3 +40,13 @@ variable "auc_threshold" {
     error_message = "AUC threshold must be between 0 and 1."
   }
 }
+
+variable "outreach_top_k" {
+  type        = number
+  default     = 0.05
+  description = "Validation score fraction used when contacting nobody has the lowest estimated cost."
+  validation {
+    condition     = var.outreach_top_k > 0 && var.outreach_top_k <= 1
+    error_message = "Outreach top-k must be greater than 0 and at most 1."
+  }
+}
