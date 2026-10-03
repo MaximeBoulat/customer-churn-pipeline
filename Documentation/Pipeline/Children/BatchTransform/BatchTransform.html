@@ -1,23 +1,44 @@
 <!DOCTYPE html>
 <html>
-<head><title>Batch transform</title></head>
+
+<head>
+  <title>Batch transform</title>
+</head>
+
 <body>
+
   <h2>Feature overview</h2>
+
   <p>System 2 applies an approved model to the unlabeled holdout. It reuses the pinned preprocessing, runs SageMaker Batch Transform, and compares each raw score with the pinned evaluation cutoff to produce an outreach flag. It publishes customer scores and prepared features for monitoring. No training, evaluation against ground truth or probability recalibration occurs here.</p>
+
   <h2>Component analysis</h2>
+
   <h3>Diagram</h3>
+
   <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+
   <h3>Key AWS actors and concepts</h3>
+
   <p>A SageMaker Model is a configuration pointing to a model artifact and container image. Batch Transform uses it for a finite inference job; it does not deploy a persistent endpoint. Model Registry supplies approval status, ECR supplies the image, and S3 holds the inputs and outputs.</p>
+
   <h2>Sequence analysis</h2>
+
   <h3>Prepare inputs</h3>
+
   <h4>Overview</h4>
+
   <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+
   <p>The operator selects an approved contract explicitly. The launcher checks its package is still approved and reads the pinned preprocessing and evaluation report. It loads curated holdout rows and calls the same preprocessing transform used in training, with the saved medians, encodings and feature order. Customer IDs are kept separately. The evaluation must contain a selected cutoff; an older fixed-cutoff report is not accepted.</p>
+
   <h4>Artifacts and effects analysis</h4>
+
   <h5>Versioned processes and outputs</h5>
+
   <p>The contract selects the registry package version and fitted preprocessing version. The input comes from the configured curated version. A new batch run ID, independent of the training execution ID, identifies this inference run.</p>
+
   <h5>S3 layout after the step</h5>
+
   <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ curated/cell2cell/&lt;curated-version&gt;/split=holdout/…     [READ]
 ├─ models/cell2cell/approvals/&lt;group&gt;/&lt;execution-id&gt;/package-&lt;version&gt;/
@@ -26,43 +47,120 @@
 │  └─ evaluation.json                                    [READ]
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">└─ inference/cell2cell/&lt;batch-run-id&gt;/_transform/
    └─ input.csv                                          [WRITE]</span></pre>
+
   <h5>Dataset before and after</h5>
+
   <p>All holdout customers are retained, ordered by customer ID. There is no new train/validation/test split. The model input has the pinned feature columns, without a header, customer ID or label.</p>
-  <div class="overflowBlock"><table class="tg">
-    <thead><tr><th>Columns</th><th>Curated holdout</th><th>Model input</th></tr></thead>
-    <tbody>
-      <tr><td>customerid</td><td>Customer identifier</td><td style="background-color: #ffebee; color: #b71c1c;">Removed from model input; retained separately</td></tr>
-      <tr><td>churn, churn_label, split</td><td>Label and partition metadata, where present</td><td style="background-color: #ffebee; color: #b71c1c;">Removed</td></tr>
-      <tr><td>retentioncalls, retentionoffersaccepted, madecalltoretentionteam</td><td>Leakage columns</td><td style="background-color: #ffebee; color: #b71c1c;">Removed</td></tr>
-      <tr><td>Numeric and categorical inputs</td><td>Curated values</td><td style="background-color: #fff3e0; color: #8a4500;">Saved imputation, service-area encoding and one-hot encoding</td></tr>
-      <tr><td>age_unknown, handsetprice_unknown, usage_record_missing</td><td>Absent</td><td style="background-color: #e8f5e9; color: #1b5e20;">Added by the shared transform</td></tr>
-    </tbody>
-  </table></div>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Columns</th>
+          <th>Curated holdout</th>
+          <th>Model input</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>customerid</td>
+          <td>Customer identifier</td>
+          <td style="background-color: #ffebee; color: #b71c1c;">Removed from model input; retained separately</td>
+        </tr>
+        <tr>
+          <td>churn, churn_label, split</td>
+          <td>Label and partition metadata, where present</td>
+          <td style="background-color: #ffebee; color: #b71c1c;">Removed</td>
+        </tr>
+        <tr>
+          <td>retentioncalls, retentionoffersaccepted, madecalltoretentionteam</td>
+          <td>Leakage columns</td>
+          <td style="background-color: #ffebee; color: #b71c1c;">Removed</td>
+        </tr>
+        <tr>
+          <td>Numeric and categorical inputs</td>
+          <td>Curated values</td>
+          <td style="background-color: #fff3e0; color: #8a4500;">Saved imputation, service-area encoding and one-hot encoding</td>
+        </tr>
+        <tr>
+          <td>age_unknown, handsetprice_unknown, usage_record_missing</td>
+          <td>Absent</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">Added by the shared transform</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
   <p>The full feature-column transformation is documented in <cross-reference-widget type="2" nodeId="23" pathLabel="Pipeline" conceptName="Preprocess"></cross-reference-widget>. This step reuses it with the approved model's saved parameters.</p>
+
   <h3>Run Batch Transform</h3>
+
   <h4>Overview</h4>
+
   <diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
+
   <p>The launcher creates a temporary SageMaker Model from the pinned artifact and image, starts one Batch Transform job and waits for completion. AWS reads the feature CSV and writes one raw score per customer. The launcher removes the temporary model afterward. The job uses the existing execution role and instance-type settings; no separate Terraform stack is required.</p>
+
+
+
   <h4>Artifacts and effects analysis</h4>
+
   <h5>Versioned processes and outputs</h5>
+
   <p>Inference uses the exact pinned model and image. It creates neither a new registry package nor a new model version.</p>
+
   <h5>S3 layout after the step</h5>
+
   <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ models/cell2cell/approvals/&lt;group&gt;/&lt;execution-id&gt;/package-&lt;version&gt;/
 │  └─ model.tar.gz                                       [READ]
 └─ inference/cell2cell/&lt;batch-run-id&gt;/_transform/
    ├─ input.csv                                          [READ]
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   └─ input.csv.out                                      [WRITE]</span></pre>
+  
   <h5>Dataset before and after</h5>
+
   <p>One feature row becomes one raw score in the same order. The job does not apply the contact cutoff. Ground-truth labels are unknown, so no confusion matrix or AUC is calculated.</p>
+
   <h3>Publish batch outputs</h3>
+
   <h4>Overview</h4>
+
   <diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
+
   <p>The launcher joins predictions to the saved customer IDs and sets <code>outreach_flag = 1</code> when the raw score is at least the pinned cutoff. It writes scores and prepared features, then publishes the batch manifest last. Downstream monitoring reads runs with a manifest and uses the existing outreach flags rather than recomputing them.</p>
+
+  <p>The manifest looks like this:</p>
+
+  <pre class="overflowBlock"><code>{
+  "schema_version": 1,
+  "run_id": "20261003T045542Z-daaa7ef6",
+  "scored_at": "2026-10-03T04:55:42.583217+00:00",
+  "rows": 20000,
+  "flagged": 953,
+  "model_package_arn": "arn:aws:sagemaker:us-east-1:702238036392:model-package/churn-rebuild-models/3",
+  "model_version": "churn-rebuild-models/3",
+  "execution_id": "87hh65toqnpd",
+  "threshold": {
+        "value": 0.555375850200653,
+        "prevalence": 0.02,
+        "contact_nobody": true,
+        "outreach_policy": "top_k",
+        "top_k": 0.05
+  },
+  "approved_contract_uri": "s3://customer-churn-pipeline-a81b79/models/cell2cell/approvals/churn-rebuild-models/87hh65toqnpd/package-3/approved_contract.json",
+  "preprocessing_version": "v1",
+  "input_uri": "s3://customer-churn-pipeline-a81b79/curated/cell2cell/v1/split=holdout/",
+  "transform_job_name": "churn-rebuild-batch-20261003t045542z-daaa7ef6"
+}</code></pre>
+
   <h4>Artifacts and effects analysis</h4>
+
   <h5>Versioned processes and outputs</h5>
+
   <p>The batch manifest records the input URI, selected approved contract, training execution ID, model and preprocessing versions, cutoff and outreach policy, row and flagged counts, and transform job name. It is separate from the training execution manifest. The threshold is reused, not selected again.</p>
+
   <h5>S3 layout after the step</h5>
+
   <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 └─ inference/cell2cell/&lt;batch-run-id&gt;/
    ├─ _transform/
@@ -71,12 +169,37 @@
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   ├─ scores.csv                                         [WRITE]
    ├─ features.csv                                       [WRITE]
    └─ manifest.json                                      [WRITE]</span></pre>
+
   <h5>Dataset before and after</h5>
+
   <p><code>scores.csv</code> has a header and one row per holdout customer:</p>
-  <div class="overflowBlock"><table class="tg">
-    <thead><tr><th>customerid</th><th>churn_probability</th><th>outreach_flag</th><th>model_version</th><th>preprocessing_version</th><th>scored_at</th></tr></thead>
-    <tbody><tr><td>Preserved identifier</td><td style="background-color: #e8f5e9; color: #1b5e20;">Raw model score</td><td style="background-color: #e8f5e9; color: #1b5e20;">0 or 1 from pinned cutoff</td><td style="background-color: #e8f5e9; color: #1b5e20;">Registry group/version</td><td style="background-color: #e8f5e9; color: #1b5e20;">Pinned preprocessing version</td><td style="background-color: #e8f5e9; color: #1b5e20;">UTC batch timestamp</td></tr></tbody>
-  </table></div>
+
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>customerid</th>
+          <th>churn_probability</th>
+          <th>outreach_flag</th>
+          <th>model_version</th>
+          <th>preprocessing_version</th>
+          <th>scored_at</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Preserved identifier</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">Raw model score</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">0 or 1 from pinned cutoff</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">Registry group/version</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">Pinned preprocessing version</td>
+          <td style="background-color: #e8f5e9; color: #1b5e20;">UTC batch timestamp</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
   <p><code>features.csv</code> contains <code>customerid</code> followed by all prepared feature columns in the pinned order, with a header. It lets monitoring examine the inputs actually scored. Green marks added fields or artifacts, orange modified values, and red removed columns. Despite its name, <code>churn_probability</code> remains the uncalibrated model score.</p>
 </body>
+
 </html>

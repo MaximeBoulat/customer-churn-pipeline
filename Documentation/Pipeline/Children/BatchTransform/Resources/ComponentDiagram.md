@@ -1,26 +1,25 @@
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Local["Local machine"]
         Operator["Operator"]
         Launcher["Batch inference launcher"]
-        Preprocess["Shared preprocessing transform"]
     end
     subgraph AWS["AWS"]
         Registry["Model Registry"]
-        Model["Temporary SageMaker Model"]
-        Job["Batch Transform job"]
-        ECR["Amazon ECR"]
-        S3["S3 holdout, approved artifacts and outputs"]
+        Batch["Batch Transform<br/>Temporary model and inference job"]
     end
-    Operator -->|select approved contract| Launcher
+
+    ECR["Amazon ECR"]
+
+    S3[("S3 inputs, approved artifacts and batch outputs")]
+
+    Operator --> Launcher
     Launcher -->|check approval| Registry
-    Launcher -->|read pinned files and holdout| S3
-    Launcher -->|apply fitted parameters| Preprocess
-    Launcher -->|create| Model
-    Launcher -->|start and wait| Job
-    Model -->|model and image configuration| Job
-    Job -->|pull inference image| ECR
-    Job -->|read input and model, write predictions| S3
-    Launcher -->|apply cutoff and publish outputs| S3
-    Launcher -->|delete after job| Model
+    Launcher -->|run inference| Batch
+    Batch -->|pull image| ECR
+    Launcher -->|prepare inputs and publish results| S3
+    Batch -->|read inputs and write predictions| S3
+
+    classDef dataStore fill:#E3F2FD,stroke:#64B5F6
+    class S3 dataStore
 ```

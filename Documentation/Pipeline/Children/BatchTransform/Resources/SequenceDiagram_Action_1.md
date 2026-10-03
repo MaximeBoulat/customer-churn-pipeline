@@ -9,6 +9,8 @@ sequenceDiagram
         participant Model as Temporary SageMaker Model
         participant Job as Batch Transform job
         participant ECR as Amazon ECR
+    end
+    box Storage
         participant S3 as S3 storage
     end
     Note over Operator,S3: Prepare inputs
