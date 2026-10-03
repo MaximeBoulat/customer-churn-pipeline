@@ -11,7 +11,7 @@
         "id": 2,
         "type": "parentArticle",
         "title": "Pipeline",
-        "lastModified": "2026-10-01",
+        "lastModified": "2026-10-02",
         "folderName": "Pipeline",
         "description": "Personal churn pipeline: curation, preprocessing, Feature Store and model candidate registration.",
         "url": "Pipeline.html",
@@ -33,6 +33,15 @@
             "folderName": "Pipeline",
             "description": "Provision and run the SageMaker preprocessing, Feature Store ingestion, training, evaluation and registration pipeline.",
             "url": "Pipeline.html"
+          },
+          {
+            "id": 26,
+            "type": "article",
+            "title": "Approval and contract",
+            "lastModified": "2026-10-02",
+            "folderName": "Approval",
+            "description": "Approve a registered model and pin its artifacts for downstream inference.",
+            "url": "Approval.html"
           },
           {
             "id": 24,

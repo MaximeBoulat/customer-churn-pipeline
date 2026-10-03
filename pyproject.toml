@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Step-by-step Cell2Cell data and ML pipeline"
 requires-python = ">=3.10"
 dependencies = [
-    "boto3>=1.34",
+    "boto3>=1.35.2",
     "numpy>=1.23,<2",
     "pandas>=1.5,<3",
     "pyarrow>=14,<20",

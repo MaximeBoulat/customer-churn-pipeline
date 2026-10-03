@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Approval and contract</title>
+</head>
+<body>
+  <h2>Feature overview</h2>
+  <p>The pipeline registers a candidate as <code>PendingManualApproval</code>. After reviewing its evaluation, the operator approves the model and pins the files downstream inference needs. This is the hinge between training and production: an explicit choice of model, preprocessing and decision cutoff. It runs separately from the SageMaker pipeline and needs no additional Terraform resources.</p>
+
+  <h2>Component analysis</h2>
+  <h3>Diagram</h3>
+  <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+  <h3>Key AWS actors and concepts</h3>
+  <p>Model Registry holds the package's approval status. S3 holds the pinned files. <code>approved_contract.json</code> points to the exact model artifact, container image, preprocessing parameters and evaluation report; it also records the input schema and versions. The selected cutoff is in the pinned evaluation's <code>threshold.value</code>. The run manifest is not used or updated by this step.</p>
+
+  <h2>Sequence analysis</h2>
+  <h3>Overview</h3>
+  <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+  <p>Open the completed execution in SageMaker Studio and review its Evaluate step's report in S3: AUC, confusion matrix, selected cutoff, expected cost versus no contact, and whether the top-k fallback was used. Copy the execution ARN. The script finds the registered package and associated files automatically.</p>
+  <p>From the repository root, with the project's environment loaded:</p>
+  <pre><code>python approval/pin_approved_contract.py \
+  --execution-arn "PASTE_PIPELINE_EXECUTION_ARN" \
+  --approve \
+  --note "Reviewed evaluation results; approved"</code></pre>
+  <p>The note is optional. Omit <code>--approve</code> if you already approved the package in Studio. The command prints the contract's S3 URI. It copies the existing artifacts without retraining, recalibrating or choosing another cutoff. Identical retries are allowed; different content cannot overwrite an existing pin. Registry approval remains authoritative, even if contract files exist.</p>
+  <p>The downstream batch launcher receives that contract URI, verifies the package is still approved, applies the saved preprocessing and loads the pinned model. After Batch Transform returns raw scores, the launcher applies the cutoff from the pinned evaluation. Batch inference itself is separate work.</p>
+
+  <h3>Artifacts and effects analysis</h3>
+  <h4>Versioned processes and outputs</h4>
+  <p>The approval folder is identified by model package group, pipeline execution ID and registry package version. The contract's <code>model_version</code> is the registry package version, not the training artifact's <code>v1</code> folder. Each artifact reference has a <code>source_uri</code> for the original and a <code>uri</code> for the pinned copy.</p>
+  <h4>S3 layout after the step</h4>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/&lt;execution-id&gt;/process/contract/
+│  └─ preprocessing_parameters.json                          [READ]
+└─ models/cell2cell/
+   ├─ &lt;model-version&gt;/&lt;execution-id&gt;/
+   │  ├─ &lt;training-job&gt;/output/model.tar.gz                  [READ]
+   │  └─ evaluation/evaluation.json                         [READ]
+<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   └─ approvals/churn-rebuild-models/&lt;execution-id&gt;/package-&lt;version&gt;/
+      ├─ approved_contract.json                             [WRITE]
+      ├─ model.tar.gz                                       [WRITE]
+      ├─ preprocessing_parameters.json                      [WRITE]
+      └─ evaluation.json                                    [WRITE]</span></pre>
+  <p>Green indicates added artifacts. The originals remain in their run folders. Pinned copies use S3-managed encryption, matching the team's approval implementation.</p>
+  <h4>Dataset before and after</h4>
+  <p>No dataset rows, columns or splits change. This step publishes the approved model's files for downstream use.</p>
+</body>
+</html>

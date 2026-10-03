@@ -187,6 +187,7 @@
 │   │           └─ validation.csv
 │   │
 │   └─ vh4m3uvvf3mo/ ← Successful execution
+│.    . ├─ execution_manifest.json
 │       ├─ feature-store/
 │       │   └─ ingestion.json ← Ingestion report
 │       └─ process/
@@ -205,6 +206,14 @@
 │
 └─ models/
     └─ cell2cell/
+        ├─ approvals/ ← Created when a model is approved and pinned
+        │   └─ churn-rebuild-models/
+        │       └─ &lt;execution-id&gt;/
+        │           └─ package-&lt;version&gt;/
+        │               ├─ approved_contract.json
+        │               ├─ model.tar.gz
+        │               ├─ preprocessing_parameters.json
+        │               └─ evaluation.json
         └─ v1/
             └─ vh4m3uvvf3mo/ ← Same successful execution
                 ├─ evaluation/
