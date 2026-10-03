@@ -204,6 +204,15 @@
 │           └─ validation/
 │               └─ validation.csv
 │
+├─ inference/ ← Created by batch inference
+│   └─ cell2cell/&lt;batch-run-id&gt;/
+│       ├─ _transform/
+│       │   ├─ input.csv
+│       │   └─ input.csv.out
+│       ├─ scores.csv
+│       ├─ features.csv
+│       └─ manifest.json
+│
 └─ models/
     └─ cell2cell/
         ├─ approvals/ ← Created when a model is approved and pinned

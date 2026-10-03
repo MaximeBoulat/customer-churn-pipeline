@@ -1,8 +1,9 @@
 # Customer churn pipeline
 
-Three stages are implemented: **data-catalog**, **preprocessing + feature-store**,
-and the **SageMaker pipeline**. Stages 2 and 3 have been authored but not run.
-Batch inference, manual approval automation and monitoring are not implemented.
+Implemented: **data-catalog**, the **SageMaker pipeline** (preprocessing, Feature
+Store ingestion, training, evaluation and registration), **approval and
+contract pinning**, and **batch inference**. The pipeline has run successfully.
+Batch inference is implemented but has not been run here. Monitoring is not implemented.
 
 ## Configuration: one file, two consumers
 
@@ -140,7 +141,7 @@ Preprocessing splits labeled customers 70/15/15, fits medians and encodings on
 training rows only, and writes label-first CSVs and fitted parameters. Ingestion
 sends all three splits to the offline Feature Store. Training waits for ingestion
 to succeed, then reads the **same CSV outputs directly**, not the offline store.
-The unlabeled holdout is left for future inference work.
+Batch inference uses the unlabeled holdout.
 
 ### Additional configuration
 
@@ -157,8 +158,8 @@ are used.
 | `TF_VAR_feature_version` | Feature Group name and offline prefix |
 | `TF_VAR_preprocessing_contract` | Version recorded in each run's fitted preprocessing contract |
 | `TF_VAR_model_version` | Model artifact output prefix and package metadata |
-| `TF_VAR_execution_role_name` | Existing role, `LabRole` |
-| `TF_VAR_instance_type` | Processing and training compute, `ml.m5.xlarge` |
+| `TF_VAR_execution_role_name` | Existing role, `LabRole`; also `config.EXECUTION_ROLE_NAME` for batch inference |
+| `TF_VAR_instance_type` | Processing, training and batch compute; `config.INSTANCE_TYPE` for batch inference |
 | `TF_VAR_auc_threshold` | Minimum test ROC-AUC for registration, `0.60` |
 
 The example image URI is for us-east-1 and XGBoost 1.7. The jobs use its bundled
@@ -183,7 +184,7 @@ terraform -chdir=pipeline apply
 uv run python pipeline/run_pipeline.py
 ```
 
-Review the plan. Terraform uploads four Python files to `pipeline/code/` and
+Review the plan. Terraform uploads the pipeline Python files to `pipeline/code/` and
 registers `definition.tf` as JSON. There is no separate upload command, Python
 definition generator, or JSON template to keep in sync. Do not apply code changes
 while an execution is running: its later steps read this same code prefix.
@@ -211,10 +212,11 @@ personal output bucket and existing lab SageMaker bucket. The offline bucket in
 - Registry: each passing run adds a numeric package version, independently of
   `MODEL_VERSION`. Package metadata includes its fitted preprocessing S3 URI.
 
-There is no execution manifest. SageMaker records execution and step status.
-Evaluation reports metrics at classification threshold **0.5**; the **AUC gate**
-uses `TF_VAR_auc_threshold`. Recalibration factor **1.0** means no adjustment.
-No cost-based threshold fitting or calibration is included.
+The execution manifest is written to `pipeline/{execution-id}/execution_manifest.json`
+and updated by preprocessing, ingestion and evaluation. Evaluation selects a
+cost-aware cutoff on validation and applies it to test predictions; the independent
+**AUC gate** uses `TF_VAR_auc_threshold`. Recalibration factor **1.0** means no
+probability adjustment.
 
 ### Feature schema changes
 
@@ -234,3 +236,93 @@ applying. A changed group name replaces the group managed by this stack; old
 offline S3 files are not deleted by Terraform. Regeneration is a real data
 operation, not a test. It has not been run here.
 
+## Approval and contract pinning
+
+After reviewing a candidate's evaluation report, copy its execution ARN from
+SageMaker Studio → Pipelines → `churn-rebuild-pipeline`. Review the selected
+cutoff, confusion matrix, expected cost versus no contact, and any top-k fallback.
+
+From the repository root:
+
+```bash
+set -a
+source .env
+set +a
+uv sync
+uv run python approval/pin_approved_contract.py \
+  --execution-arn "PASTE_PIPELINE_EXECUTION_ARN" \
+  --approve \
+  --note "Reviewed evaluation results; approved"
+```
+
+`--note` is optional. Omit `--approve` if the package is already approved in
+Studio. The script finds the registered package and artifacts automatically;
+no Terraform apply or new pipeline execution is needed.
+
+The command pins the model, preprocessing parameters and evaluation report,
+writes `approved_contract.json`, and sets the package to `Approved` when
+`--approve` is supplied. Files go to:
+
+```text
+s3://customer-churn-pipeline-a81b79/models/cell2cell/approvals/
+└─ churn-rebuild-models/<execution-id>/package-<version>/
+   ├─ approved_contract.json
+   ├─ model.tar.gz
+   ├─ preprocessing_parameters.json
+   └─ evaluation.json
+```
+
+The originals remain in their run folders. Identical retries are allowed;
+different content cannot overwrite an existing pin. The command prints the
+contract URI to give to the batch inference launcher. The selected
+cutoff is in the pinned evaluation report, referenced by the contract.
+
+
+## Batch inference (System 2)
+
+Select the `approved_contract.json` URI printed by the approval command.
+The pinned evaluation must contain the selected `threshold` block. The existing
+pin for `v03gvl2je2xx/package-2` predates that change: apply the updated pipeline,
+run it, then approve and pin the new execution before using batch inference.
+Existing pins are not overwritten.
+
+From the repository root:
+
+```bash
+set -a
+source .env
+set +a
+uv sync
+uv run python batch-transform/run_batch_inference.py \
+  --contract-uri "PASTE_APPROVED_CONTRACT_S3_URI"
+```
+
+This runs a real Batch Transform job over the full curated holdout. There is no
+separate Terraform apply for this stage. It uses the current AWS profile,
+`TF_VAR_execution_role_name` and `TF_VAR_instance_type` through `config.py`.
+The model and image come from the selected contract.
+
+The launcher prepares inputs locally using the pinned preprocessing, starts the
+AWS job, waits, applies the pinned cutoff and prints the output URI and flagged
+count. Keep the terminal running until it finishes. A failed job reports its
+AWS failure reason; a timeout after 30 minutes or interruption attempts to stop
+the job. The temporary SageMaker Model is deleted afterward. No endpoint is created.
+
+Outputs are written to the configured personal bucket:
+
+```text
+inference/cell2cell/<batch-run-id>/
+├─ _transform/
+│  ├─ input.csv
+│  └─ input.csv.out
+├─ scores.csv
+├─ features.csv
+└─ manifest.json
+```
+
+Each invocation gets a new batch run ID. `scores.csv` contains customer IDs,
+raw scores, outreach flags, model/preprocessing versions and the UTC timestamp.
+`features.csv` contains the prepared inputs with customer IDs. `manifest.json`
+is written last; monitoring should only consume runs where it exists.
+The command does not train, approve models, change the cutoff or update the
+training execution manifest.

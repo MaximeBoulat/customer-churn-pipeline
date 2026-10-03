@@ -8,6 +8,8 @@ PROJECT_PREFIX = os.environ["TF_VAR_project_prefix"]
 RAW_S3_URI = os.environ["TF_VAR_raw_s3_uri"]
 OUTPUT_BUCKET = os.environ["TF_VAR_output_bucket"]
 CURATED_VERSION = os.environ["TF_VAR_curated_version"]
+INSTANCE_TYPE = os.environ["TF_VAR_instance_type"]
+EXECUTION_ROLE_NAME = os.environ["TF_VAR_execution_role_name"]
 
 DATABASE = PROJECT_PREFIX.replace("-", "_")
 WORKGROUP = PROJECT_PREFIX
