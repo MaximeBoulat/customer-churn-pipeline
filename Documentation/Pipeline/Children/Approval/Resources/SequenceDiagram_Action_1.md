@@ -7,8 +7,14 @@ sequenceDiagram
     box AWS
         participant Execution as Pipeline execution and jobs
         participant Registry as Model Registry
+
+    end 
+
+    box Storage
         participant S3 as S3 storage
+
     end
+
     Note over Operator,S3: Approve and pin a reviewed candidate
     Operator->>Script: execution ARN and approval decision
     Script->>Execution: find registration, training and preprocessing steps

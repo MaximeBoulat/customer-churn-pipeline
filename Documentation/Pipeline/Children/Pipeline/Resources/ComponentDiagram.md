@@ -7,7 +7,7 @@ direction LR
     Training["XGBoost training job"]
     Evaluation["Evaluation job"]
 
-    Preparation --> Training
+    Preparation --> Training 
     Training --> Evaluation
 
  
