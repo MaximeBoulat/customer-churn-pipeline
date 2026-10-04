@@ -1,70 +1,98 @@
-"""Create an explicitly labelled test replay for quality and bias monitoring."""
+#!/usr/bin/env python3
+"""Replay a labelled split through the approved model as a contract-shaped run
+with labels.csv, for the two monitors that need ground truth. Manifest says replay.
+--drift marks a disclosed simulation (-sim run id) for M5-03. Scores locally, no cost.
+
+    uv run --with 'xgboost==1.7.6' python monitoring/replay_labelled_batch.py \
+        --execution-id <execution> --model-version <n> --split test [--drift monthlyrevenue=1.5]
+"""
+
+from __future__ import annotations
+
 import argparse
-from datetime import datetime, timezone
 import io
 import json
-from pathlib import Path
+import pathlib
 import sys
 import tarfile
-import uuid
+import time
 
-import boto3
 import pandas as pd
-import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "batch-transform"))
-import config
-import run_batch_inference as batch
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import settings as config  # noqa: E402
+import metrics as mon  # noqa: E402
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--contract-uri", required=True)
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--execution-id", required=True)
+    parser.add_argument("--split", default="test", choices=("train", "validation", "test"))
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="cutoff; defaults to the execution's evaluation.json threshold.value")
+    parser.add_argument("--model-version", required=True,
+                        help="the registered package version this execution produced")
+    parser.add_argument("--drift", metavar="FEATURE=FACTOR",
+                        help="multiply one feature before scoring; marks the run as a simulation")
     args = parser.parse_args()
-    import xgboost as xgb
-    session = boto3.Session(profile_name=config.AWS_PROFILE, region_name=config.REGION)
-    if session.client("sts").get_caller_identity()["Account"] != config.LAB_ACCOUNT_ID:
-        raise ValueError("AWS profile is not using the configured Learner Lab account")
-    s3 = session.client("s3")
-    contract, fitted, threshold = batch.load_approved(s3, session.client("sagemaker"), args.contract_uri)
-    execution = contract["pipeline_execution_arn"].rsplit("/", 1)[-1]
-    base = f"s3://{config.OUTPUT_BUCKET}/pipeline/{execution}/process"
-    table = pd.read_csv(io.BytesIO(batch.read(s3, base + "/test/test.csv")), header=None)
-    ids = pd.read_csv(io.BytesIO(batch.read(s3, base + "/identifiers/test.csv")), header=None).iloc[:,0]
-    if len(ids) != len(table) or ids.isna().any() or ids.duplicated().any() or table.shape[1] != 1+len(fitted["feature_names"]):
-        raise ValueError("Test labels, identifiers and feature columns must align")
-    labels = table.iloc[:,0].astype(int)
-    features = table.iloc[:,1:].copy(); features.columns = fitted["feature_names"]
-    with tarfile.open(fileobj=io.BytesIO(batch.read(s3, contract["model_artifact"]["uri"])), mode="r:gz") as archive:
-        members = [m for m in archive.getmembers() if m.isfile() and Path(m.name).name == "xgboost-model"]
-        if len(members) != 1:
-            raise ValueError("Expected one native XGBoost model")
-        model_bytes = bytearray(archive.extractfile(members[0]).read())
-    booster = xgb.Booster(); booster.load_model(model_bytes)
-    probabilities = booster.predict(xgb.DMatrix(features.to_numpy()))
-    if not np.isfinite(probabilities).all():
-        raise ValueError("Non-finite replay predictions")
-    now = datetime.now(timezone.utc)
-    run_id = now.strftime("%Y%m%dT%H%M%SZ") + "-replay-" + uuid.uuid4().hex[:8]
-    prefix = f"inference/cell2cell/{run_id}"
-    group, version = contract["model_package_arn"].rsplit("/",2)[-2:]
-    scores = pd.DataFrame({"customerid": ids, "churn_probability": probabilities,
-        "outreach_flag": (probabilities >= threshold["value"]).astype(int),
-        "model_version": f"{group}/{version}", "preprocessing_version": contract["preprocessing_version"],
-        "scored_at": now.isoformat()})
-    for name, data in [("scores.csv",scores), ("features.csv",pd.concat([ids.rename("customerid"),features],axis=1)),
-                       ("labels.csv",pd.DataFrame({"customerid":ids,"churn_label":labels}))]:
-        batch.put(s3,prefix,name,data.to_csv(index=False).encode(),"text/csv")
-    manifest = {"schema_version":1,"run_id":run_id,"scored_at":now.isoformat(),"rows":len(scores),
-        "flagged":int(scores.outreach_flag.sum()),"model_package_arn":contract["model_package_arn"],
-        "model_version":f"{group}/{version}","execution_id":execution,"threshold":threshold,
-        "approved_contract_uri":args.contract_uri,"preprocessing_version":contract["preprocessing_version"],
-        "input_uri":base+"/test/test.csv","labels_uri":f"s3://{config.OUTPUT_BUCKET}/{prefix}/labels.csv",
-        "replay":True,"source":"labelled replay of the test split"}
-    batch.put(s3,prefix,"manifest.json",json.dumps(manifest,indent=2,allow_nan=False).encode(),"application/json")
-    print(f"Replay run ID: {run_id}")
-    print(f"s3://{config.OUTPUT_BUCKET}/{prefix}/")
+    import xgboost
+
+    s3, bucket = config.s3_client(), config.BUCKET_NAME
+
+    models = config.dataset_path(config.MODELS_PREFIX, config.MODEL_VERSION)
+    prefix = f"{models}/{args.execution_id}/"
+    key = next(o["Key"] for o in s3.list_objects_v2(Bucket=bucket, Prefix=prefix)["Contents"]
+               if o["Key"].endswith("model.tar.gz"))
+    with tarfile.open(fileobj=io.BytesIO(s3.get_object(Bucket=bucket, Key=key)["Body"].read())) as tar:
+        member = next(m for m in tar.getmembers() if m.isfile() and pathlib.Path(m.name).name == "xgboost-model")
+        booster = xgboost.Booster()
+        booster.load_model(bytearray(tar.extractfile(member).read()))
+
+    threshold = args.threshold
+    if threshold is None:
+        evaluation = json.loads(s3.get_object(
+            Bucket=bucket, Key=f"{models}/{args.execution_id}/evaluation/evaluation.json")["Body"].read())
+        threshold = (evaluation.get("threshold") or {}).get("value")
+        if threshold is None:
+            raise SystemExit("evaluation.json has no threshold.value; pass --threshold")
+
+    split = mon.read_split(args.execution_id, args.split, client=s3)
+    names = mon.load_feature_names(client=s3, execution_id=args.execution_id)
+    features = split[names].copy()
+
+    simulation = None
+    if args.drift:
+        feature, factor = args.drift.split("=")
+        features[feature] = features[feature] * float(factor)
+        simulation = {"feature": feature, "factor": float(factor), "source_split": args.split}
+
+    scores = booster.predict(xgboost.DMatrix(features.to_numpy()))
+    flag = (scores >= threshold).astype(int)
+
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + ("-sim" if simulation else "")
+    ids = [f"{args.split[0]}{i:05d}" for i in range(len(split))]
+    out = config.dataset_path(config.INFERENCE_PREFIX, run_id)
+
+    def put(name, body):
+        s3.put_object(Bucket=bucket, Key=f"{out}/{name}", Body=body, ServerSideEncryption="AES256")
+
+    put("scores.csv", pd.DataFrame({
+        "customerid": ids, "churn_probability": scores, "outreach_flag": flag,
+        "model_version": f"{config.MODEL_PACKAGE_GROUP}/{args.model_version}"}).to_csv(index=False).encode())
+    put("features.csv", pd.concat([pd.Series(ids, name="customerid"),
+                                   features.reset_index(drop=True)], axis=1).to_csv(index=False).encode())
+    put("labels.csv", pd.DataFrame({"customerid": ids,
+                                    "churn_label": split["churn_label"].to_numpy()}).to_csv(index=False).encode())
+    put("manifest.json", json.dumps({
+        "schema_version": 1, "run_id": run_id, "rows": len(split), "flagged": int(flag.sum()),
+        "model_version": f"{config.MODEL_PACKAGE_GROUP}/{args.model_version}", "execution_id": args.execution_id,
+        "threshold": {"value": threshold, "prevalence": 0.02},
+        "simulation": simulation, "source": f"labelled replay of the {args.split} split", "replay": True,
+    }, indent=2).encode())
+
+    print(f"{run_id}: {len(split):,} rows, {int(flag.sum())} flagged"
+          + (f", SIMULATION {simulation['feature']} x{simulation['factor']}" if simulation else ""))
+    print(f"s3://{bucket}/{out}/")
 
 
 if __name__ == "__main__":

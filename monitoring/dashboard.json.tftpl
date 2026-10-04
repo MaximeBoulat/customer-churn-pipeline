@@ -1,0 +1,65 @@
+{
+  "widgets": [
+    {"type": "text", "x": 0, "y": 0, "width": 24, "height": 3, "properties": {"markdown":
+      "## Is the churn model still doing its job?\n\nEach time we score a batch of customers, we check it against three questions and post the results here as one point per run. **If the alarms at the bottom are green, everything is fine.** Every number has its limit written next to it, so you do not need to remember any."}},
+
+    {"type": "text", "x": 0, "y": 3, "width": 6, "height": 6, "properties": {"markdown":
+      "### 1. Has the data changed?\n\nCustomers drift over time, and a model trained on last year's customers can quietly stop fitting this year's. So we compare every feature in the new batch to what the model was trained on.\n\n- under **0.1**: nothing has moved\n- 0.1 to 0.2: something is shifting, keep an eye on it\n- **${psi}** or more: look into it, the alarm fires\n\nThe chart tracks whichever feature moved the most in each run."}},
+    {"type": "metric", "x": 6, "y": 3, "width": 6, "height": 3, "properties": {"title": "Biggest shift (PSI)", "region": "${region}", "view": "singleValue", "sparkline": false, "singleValueFullPrecision": true, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "MaxFeaturePSI", "ModelName", "${model}", {"label": "alarm at ${psi}"}]]}},
+    {"type": "metric", "x": 6, "y": 6, "width": 6, "height": 3, "properties": {"title": "Features past ${psi}", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "FeaturesInvestigate", "ModelName", "${model}", {"label": "of 70"}]]}},
+    {"type": "metric", "x": 12, "y": 3, "width": 12, "height": 6, "properties": {"title": "Biggest shift, run by run", "region": "${region}", "view": "bar", "stacked": false, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "MaxFeaturePSI", "ModelName", "${model}", {"label": "max PSI"}]],
+      "yAxis": {"left": {"min": 0, "label": "PSI"}},
+      "annotations": {"horizontal": [{"label": "stable below", "value": 0.1, "color": "#2ca02c"}, {"label": "investigate", "value": ${psi}, "color": "#d62728"}]}}},
+
+    {"type": "text", "x": 0, "y": 9, "width": 6, "height": 6, "properties": {"markdown":
+      "### 2. Is it still accurate?\n\nWe can only answer this once we know who actually churned, so this row fills in for runs where those labels exist.\n\n- **Precision**: when we flagged someone, how often were we right\n- **Recall**: of everyone who really churned, how many did we catch\n- **F2**: a single score that leans toward recall; the alarm fires if it drops under **${f2_pct}%**\n\nHeads up: the cutoff the pipeline chose is tuned to spend the retention budget carefully, so it flags very few people. Recall is low even on a good day. That is a choice, not a fault."}},
+    {"type": "metric", "x": 6, "y": 9, "width": 6, "height": 3, "properties": {"title": "Precision and recall, %", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
+      "metrics": [
+        ["${namespace}", "Precision", "ModelName", "${model}", {"id": "p", "visible": false}],
+        ["${namespace}", "Recall", "ModelName", "${model}", {"id": "r", "visible": false}],
+        [{"expression": "p*100", "label": "precision", "id": "e1"}],
+        [{"expression": "r*100", "label": "recall", "id": "e2"}]]}},
+    {"type": "metric", "x": 6, "y": 12, "width": 6, "height": 3, "properties": {"title": "F2, %", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
+      "metrics": [
+        ["${namespace}", "F2", "ModelName", "${model}", {"id": "f", "visible": false}],
+        [{"expression": "f*100", "label": "alarm below ${f2_pct}", "id": "e3"}]]}},
+    {"type": "metric", "x": 12, "y": 9, "width": 12, "height": 6, "properties": {"title": "F2, run by run", "region": "${region}", "view": "bar", "stacked": false, "stat": "Average", "period": 60,
+      "metrics": [["${namespace}", "F2", "ModelName", "${model}", {"id": "m1", "visible": false}], [{"expression": "m1*100", "label": "F2 %", "id": "e1"}]],
+      "yAxis": {"left": {"min": 0, "label": "%"}},
+      "annotations": {"horizontal": [{"label": "alarm below", "value": ${f2_pct}, "color": "#d62728"}]}}},
+
+    {"type": "text", "x": 0, "y": 15, "width": 6, "height": 6, "properties": {"markdown":
+      "### 3. Is it fair?\n\nAre customers with lower credit ratings being flagged more or less often than those with the highest? We divide one rate by the other.\n\n- exactly **1.0**: treated identically\n- anywhere from **0.8 to 1.25**: close enough, by the usual four-fifths rule\n- outside that: the alarm fires\n\nLike accuracy, this needs the real outcomes. It also needs enough flagged customers to be meaningful, so runs that flag fewer than ${min_flag} are not assessed rather than reported as noise."}},
+    {"type": "metric", "x": 6, "y": 15, "width": 6, "height": 3, "properties": {"title": "Fairness ratio", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
+      "metrics": [["${namespace}", "DI_CreditRating", "ModelName", "${model}", {"label": "fine 0.8 to 1.25"}]]}},
+    {"type": "metric", "x": 6, "y": 18, "width": 6, "height": 3, "properties": {"title": "Assessed this run", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
+      "metrics": [["${namespace}", "BiasAssessed", "ModelName", "${model}", {"label": "1 = yes, needs ${min_flag}+ flagged"}]]}},
+    {"type": "metric", "x": 12, "y": 15, "width": 12, "height": 6, "properties": {"title": "Fairness ratio, run by run", "region": "${region}", "view": "bar", "stacked": false, "stat": "Average", "period": 60,
+      "metrics": [["${namespace}", "DI_CreditRating", "ModelName", "${model}", {"label": "DI"}]],
+      "yAxis": {"left": {"min": 0, "max": 2, "label": "DI"}},
+      "annotations": {"horizontal": [{"label": "ceiling", "value": 1.25, "color": "#d62728"}, {"label": "four-fifths floor", "value": 0.8, "color": "#d62728"}]}}},
+
+    {"type": "text", "x": 0, "y": 21, "width": 6, "height": 3, "properties": {"markdown":
+      "### 4. What happened in the last run?\n\nHow many customers we scored, how many we flagged for a retention call, and what share of them we already know the real outcome for."}},
+    {"type": "metric", "x": 6, "y": 21, "width": 4, "height": 3, "properties": {"title": "Scored", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "RowsScored", "ModelName", "${model}", {"label": "rows"}]]}},
+    {"type": "metric", "x": 10, "y": 21, "width": 4, "height": 3, "properties": {"title": "Flagged for a call", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "Flagged", "ModelName", "${model}", {"label": "customers"}]]}},
+    {"type": "metric", "x": 14, "y": 21, "width": 5, "height": 3, "properties": {"title": "Flag rate", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Maximum", "period": 60,
+      "metrics": [["${namespace}", "FlagRate", "ModelName", "${model}", {"id": "m1", "visible": false}], [{"expression": "m1*100", "label": "% of scored", "id": "e1"}]]}},
+    {"type": "metric", "x": 19, "y": 21, "width": 5, "height": 3, "properties": {"title": "Outcomes known", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
+      "metrics": [["${namespace}", "LabelCoverage", "ModelName", "${model}", {"id": "m1", "visible": false}], [{"expression": "m1*100", "label": "% of scored", "id": "e1"}]]}},
+
+    {"type": "text", "x": 0, "y": 24, "width": 6, "height": 3, "properties": {"markdown":
+      "### What turns each alarm red\n\n**drift**: the data moved past ${psi}. **quality**: F2 fell under ${f2_pct}%. **bias**: the fairness ratio left the band. **nobody-flagged**: a run flagged no one at all, which should never happen. **stale**: nothing has run in a week."}},
+    {"type": "alarm", "x": 6, "y": 24, "width": 18, "height": 3, "properties": {"title": "Right now", "alarms": [
+      "arn:aws:cloudwatch:${region}:${account}:alarm:${model}-drift",
+      "arn:aws:cloudwatch:${region}:${account}:alarm:${model}-quality",
+      "arn:aws:cloudwatch:${region}:${account}:alarm:${model}-bias",
+      "arn:aws:cloudwatch:${region}:${account}:alarm:${model}-nobody-flagged",
+      "arn:aws:cloudwatch:${region}:${account}:alarm:${model}-stale"]}}
+  ]
+}

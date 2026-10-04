@@ -330,26 +330,15 @@ training execution manifest.
 
 ## Monitoring (System 3)
 
-Terraform provisions CloudWatch; the Python script analyzes a
-completed batch locally and writes its report and metrics. It does not launch
-a SageMaker job or retrain the model.
+Monitoring now follows Dennis’s [PR #56](https://github.com/marstonsward/aai-540-customer-churn/pull/56)
+at `0740804`: calculations, subgroup reports, feature-version baseline, metric
+payload, dashboard and alarm behavior. The six System 2 expectations and their
+implementation/gaps are mapped in
+[Monitoring](Documentation/Pipeline/Children/Monitoring/Monitoring.html).
+Personal adaptations are limited to configuration, AWS session, existing artifact
+paths and explicit SSE-S3 writes. No new monitoring capability fills the reference’s gaps.
 
-The four monitoring settings are already in `.env` and `.env.example`:
-
-| Setting | Initial value | Consumer |
-|---|---:|---|
-| `TF_VAR_monitoring_psi_threshold` | 0.2 | Terraform alarm and Python drift report |
-| `TF_VAR_monitoring_f2_floor` | 0.0017 | Terraform quality alarm |
-| `TF_VAR_monitoring_min_flagged` | 20 | Python group assessment and Terraform dashboard text |
-| `TF_VAR_monitoring_stale_days` | 7 | Terraform freshness alarm |
-
-Python's `monitoring/settings.py` reads the two calculation settings directly
-from the exported environment, and derives the namespace from `config.py`'s
-project prefix. Terraform reads those same `TF_VAR_` values. There are no tfvars
-or fallback settings. The F2 floor is copied from PR #56 as a starting value;
-it has **not** been calibrated to this model's performance.
-
-From the repository root, provision the dashboard and five alarms:
+From the repository root, load `.env` and provision CloudWatch:
 
 ```bash
 set -a
@@ -361,62 +350,98 @@ terraform -chdir=monitoring plan
 terraform -chdir=monitoring apply
 ```
 
-Then analyze a completed batch using its batch run ID, not a pipeline execution ID:
+Terraform does not run or schedule monitoring. Python runs the calculations locally.
+`monitoring/settings.py` reads the exported environment and root `config.py`;
+Terraform reads the same `TF_VAR_` values. No tfvars file is needed.
+
+| Setting | Initial value | Used by |
+|---|---|---|
+| `TF_VAR_monitoring_psi_threshold` | 0.2 | Python and Terraform |
+| `TF_VAR_monitoring_f2_floor` | 0.0017 | Terraform; copied from Dennis’s measured runs, not calibrated here |
+| `TF_VAR_monitoring_min_flagged` | 20 | Python and dashboard text |
+| `TF_VAR_monitoring_stale_days` | 7 | Terraform |
+| `MONITORING_BIAS_ADVANTAGED` | `1-highest` | Python credit-rating reference group |
+
+Monitoring also reads the existing curated, feature, preprocessing and model
+version settings. Namespace and model name derive from the project prefix.
+
+### Fit the baseline and monitor a batch
+
+The first call needs `--baseline-from`: the pipeline **execution ID** whose
+training distribution will be the reference. `--run-id` is the **batch run ID**.
+For the existing batch, these are:
 
 ```bash
 uv run python monitoring/run_monitoring.py \
-  --run-id "20261003T045542Z-daaa7ef6"
+  --run-id "20261003T045542Z-daaa7ef6" \
+  --baseline-from "87hh65toqnpd"
 ```
 
-The command reads that batch's manifest, features, scores and pinned preprocessing.
-On first use of a model, it creates a baseline from that model's training CSV;
-later batches reuse it. The Learner Lab profile reads the original training data.
-Outputs go to:
+This reads `pipeline/<execution-id>/process/train/train.csv` and its preprocessing
+parameters directly. Dennis’s repo uses republished copies instead. It writes:
 
 ```text
 monitoring/cell2cell/
-├─ baselines/<training-execution-id>/baseline.json
+├─ <feature-version>/baseline.json
 └─ <batch-run-id>/drift_report.json
 ```
 
-Open **CloudWatch → Dashboards → churn-rebuild-monitoring** in `us-east-1`.
-Metrics use namespace `churn-rebuild/ChurnMonitoring`, dimensions
-`ModelName=churn-rebuild` and `Source=live` or `Source=replay`.
-The detailed per-feature results are in the S3 report printed by the command.
-Rerunning for the same batch updates its report and publishes another metric point.
+Later runs omit `--baseline-from` to reuse that baseline. Supplying it again
+**replaces** the feature-version baseline. The implementation does not verify
+that it belongs to the model being monitored. Previous personal
+`baselines/<execution-id>/` files are no longer used; nothing deletes them.
 
-The current holdout has no churn labels. Quality and group comparisons will be
-unassessed, not successful. When actual labels are available, supply their S3 CSV
-URI; the file must contain unique `customerid` values and binary `churn_label`:
+Without labels, only drift and outreach measurements are produced. When labels
+are available, pass their **key within the configured bucket**, not a full S3 URI:
 
 ```bash
 uv run python monitoring/run_monitoring.py \
   --run-id "PASTE_BATCH_RUN_ID" \
-  --labels "s3://YOUR_BUCKET/path/to/labels.csv"
+  --labels "path/to/labels.csv"
 ```
 
-The report records join coverage. Quality and group comparisons use only matching
-customers and the outreach flags already written by batch inference.
+The CSV needs `customerid,churn_label`; customer IDs must be unique and labels
+must be 0 or 1. At least one customer must match. Labels are not auto-discovered.
+The report records join coverage. In parity with the reference, quality/bias
+recompute decisions using `score > cutoff`, despite System 2’s contract saying
+to consume the existing flags. That discrepancy is documented, not silently fixed.
 
-### Optional labelled test replay
+### Optional labelled replay and drift simulation
 
-To exercise quality and group measurements now, reuse the approved model on its
-existing test split. This runs XGBoost locally and writes a separate replay batch
-to S3; it does not create new production labels or launch a Batch Transform job.
-Use the same approved contract URI used for batch inference:
+Choose the training execution, its registered package version and a split.
+The helper uses that execution’s model and evaluation cutoff; it does not check
+registry approval or use the approval pin. It runs XGBoost locally and writes a
+separate replay batch, not a SageMaker job:
 
 ```bash
 uv run --with 'xgboost==1.7.6' python monitoring/replay_labelled_batch.py \
-  --contract-uri "PASTE_APPROVED_CONTRACT_S3_URI"
+  --execution-id "87hh65toqnpd" \
+  --model-version "3" \
+  --split test
 uv run python monitoring/run_monitoring.py \
-  --run-id "PASTE_REPLAY_RUN_ID_PRINTED_ABOVE"
+  --run-id "PASTE_REPLAY_RUN_ID" \
+  --labels "inference/cell2cell/PASTE_REPLAY_RUN_ID/labels.csv"
 ```
 
-The replay folder contains `scores.csv`, `features.csv`, `labels.csv` and
-`manifest.json`. Its manifest records the labels URI and `replay: true`, so the
-monitoring command finds its labels automatically. Replay measurements appear
-separately on the dashboard and do not trigger live alarms.
+`--split` accepts `train`, `validation` or `test`. Optional `--threshold` overrides
+the evaluation cutoff. Add `--drift monthlyrevenue=1.5` to multiply that feature
+before scoring and create a disclosed simulation with a `-sim` run ID.
+Replay files use positional IDs that match within that replay, not actual customer IDs.
+Replay is an exercise with existing labels, not new production outcomes.
 
-Monitoring is manually invoked. Terraform does not schedule it, send email
-notifications, or trigger retraining. Inspect the report when an alarm fires;
-missing quality data must not be interpreted as a passing quality check.
+### Inspect the results
+
+Open **CloudWatch → Dashboards → churn-rebuild-monitoring** in `us-east-1`.
+Metrics use namespace `churn-rebuild/ChurnMonitoring` and the single dimension
+`ModelName=churn-rebuild`. Live, replay and simulation metrics share that series
+and can all affect alarms, including freshness. The S3 report’s manifest
+identifies replay/simulation runs.
+
+The dashboard displays maximum feature PSI, affected-feature count, precision,
+recall, F2, credit-rating ratio/assessment, scored/flagged counts, flag rate and
+label coverage. Per-feature PSI and subgroup details are in `drift_report.json`.
+An OK alarm does not prove quality/bias was measured: missing data is treated
+as not breaching except by the stale alarm. No email or retraining action is configured.
+
+Changes are local until Terraform is applied and the scripts are run. Existing
+AWS baselines, reports and dashboards have not been modified by this alignment.
