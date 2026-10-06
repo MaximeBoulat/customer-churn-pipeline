@@ -2,42 +2,42 @@
 flowchart TB
     subgraph BUILD["System 1: train and deploy, run on demand as a SageMaker Pipeline"]
         direction TB
-        subgraph DATA["Data: curate, understand, prepare"]
+        subgraph STAGING["Stage curated data"]
             direction LR
-            Cat["**Glue catalog and CTAS**<br/>infrastructure/terraform/data-catalog"]
-            EDA["**EDA**<br/>notebooks/02_eda.ipynb"]
-            Proc["**Preprocessing**<br/>Cell2CellProcess<br/>src/preprocess.py"]
-            FS["**Feature Store**<br/>Cell2CellFeatureStore<br/>infrastructure/terraform/feature-store"]
-
-            Cat --> EDA --> Proc --> FS
+            Cat["<strong>Glue catalog and CTAS</strong><br/>infrastructure/terraform/data-catalog"]
+            Cat --> EDA
         end
 
-        subgraph MODEL["Model: fit, judge, release"]
-            direction LR
-            Train["**Training**<br/>Cell2CellTrain<br/>per train-model/scripts/train.py"]
-            Eval["**Evaluation**<br/>Cell2CellEval"]
-            RegV["**Model Registry**<br/>Cell2CellRegister<br/>registered PendingManualApproval"]
-            Gate{"**Manual approval**<br/>Cell2CellQualityGate<br/>plus a metric condition"}
+        subgraph PIPELINE["Model: preprocess, feature-store, train, evaluate"]
+            direction TB 
+            Proc["<strong>Preprocessing</strong><br/>Cell2CellProcess<br/>src/preprocess.py"]
+            FS["<strong>Feature Store</strong><br/>Cell2CellFeatureStore<br/>infrastructure/terraform/feature-store"]   
+            Train["<strong>Training</strong><br/>Cell2CellTrain<br/>per train-model/scripts/train.py"]
+            Eval["<strong>Evaluation</strong><br/>Cell2CellEval"]
+            RegV["<strong>Model Registry</strong><br/>Cell2CellRegister<br/>registered PendingManualApproval"]
+            Gate{"<strong>Manual approval</strong><br/>Cell2CellQualityGate<br/>plus a metric condition"}
 
+            Proc --> FS
+            FS --> Train
             Train --> Eval --> Gate
             Gate -->|true| RegV
-            Gate -->|false| Failed["**Fail**<br/>Cell2CellQualityGateFailed<br/>no model package created"]
+            Gate -->|false| Failed["<strong>Fail</strong><br/>Cell2CellQualityGateFailed<br/>no model package created"]
         end
     end
 
     subgraph SERVE["System 2: operational serving, weekly"]
-        BatchT["**Batch Transform**"]
+        BatchT["<strong>Batch Transform</strong>"]
     end
 
     subgraph OBS["System 3: observability"]
-        MonSys["**Monitoring**<br/>PSI drift, quality, CloudWatch"]
+        MonSys["<strong>Monitoring</strong><br/>PSI drift, quality, CloudWatch"]
     end
 
-    DATA --> MODEL
-    MODEL -->|approved package| SERVE
+    STAGING --> PIPELINE
+    PIPELINE -->|approved package| SERVE
     BatchT --> MonSys
 
-    OBS -.->|sustained drift prompts a retrain| MODEL
+    OBS -.->|sustained drift prompts a retrain| PIPELINE
 
     classDef human fill:#f3e5f5,stroke:#7b1fa2,stroke-dasharray: 3 3
     class EDA human

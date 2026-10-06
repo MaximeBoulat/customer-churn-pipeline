@@ -11,7 +11,9 @@
 
   <p>System 2 applies an approved model to the unlabeled holdout. It reuses the pinned preprocessing, runs SageMaker Batch Transform, and compares each raw score with the pinned evaluation cutoff to produce an outreach flag. It publishes customer scores and prepared features for monitoring. No training, evaluation against ground truth or probability recalibration occurs here.</p>
 
-  <p>The starting point is section 6 of the team’s <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/main/docs/m5-01-batch-output-contract.md">System 2–System 3 contract</a>. Its six monitoring expectations appear below in their original order. System 2 publishes the inputs; System 3 performs the monitoring calculations. In this table, <code>scores.csv</code>, <code>features.csv</code> and <code>manifest.json</code> all belong to <code>s3://customer-churn-pipeline-a81b79/inference/cell2cell/&lt;batch-run-id&gt;/</code>. These are the expectations, not the implementation. Follow the same numbered rows in <cross-reference-widget type="2" nodeId="25" pathLabel="Monitoring" conceptName="Feature overview"></cross-reference-widget> to see how Dennis’s System 3 fulfills or departs from each.</p>
+  <p>The starting point is section 6 of the team's <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/main/docs/m5-01-batch-output-contract.md">System 2–System 3 contract</a>. Its six monitoring expectations appear below in their original order. System 2 publishes the inputs; System 3 performs the monitoring calculations.</p>
+    
+  <p>In this table, <code>scores.csv</code>, <code>features.csv</code> and <code>manifest.json</code> all belong to <code>s3://customer-churn-pipeline-a81b79/inference/cell2cell/&lt;batch-run-id&gt;/</code>. These are the expectations, not the implementation. Follow the same numbered rows in <cross-reference-widget type="2" nodeId="25" pathLabel="Monitoring" conceptName="Feature overview"></cross-reference-widget> to see how Dennis’s System 3 fulfills or departs from each.</p>
 
   <div class="overflowBlock">
     <table class="tg">
@@ -162,7 +164,7 @@
 └─ inference/cell2cell/&lt;batch-run-id&gt;/_transform/
    ├─ input.csv                                          [READ]
 <span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">   └─ input.csv.out                                      [WRITE]</span></pre>
-  
+
   <h5>Dataset before and after</h5>
 
   <p>One feature row becomes one raw score in the same order. The job does not apply the contact cutoff. Ground-truth labels are unknown, so no confusion matrix or AUC is calculated.</p>

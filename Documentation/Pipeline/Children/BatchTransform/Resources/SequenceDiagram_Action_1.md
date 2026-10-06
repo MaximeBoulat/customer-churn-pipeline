@@ -4,12 +4,12 @@ sequenceDiagram
         participant Operator
         participant Launcher as Batch launcher
     end
-    box AWS
+    box AWS 
         participant Registry as Model Registry
         participant Model as Temporary SageMaker Model
-        participant Job as Batch Transform job
+        participant Job as Batch Transform job 
         participant ECR as Amazon ECR
-    end
+    end 
     box Storage
         participant S3 as S3 storage
     end

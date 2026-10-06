@@ -9,7 +9,7 @@ flowchart TB
         Eval["**Evaluation**<br/>Precision, recall, F-scores, AUC metrics<br/>terraform/pipeline"]
         RegV["**Model Registry**<br/>Version registered PendingManualApproval<br/>terraform/pipeline"]
         Gate{"**Manual approval**<br/>Plus quality gate<br/>terraform/pipeline"}
-    end
+    end 
 
     subgraph Raw
         Praw["raw/"]

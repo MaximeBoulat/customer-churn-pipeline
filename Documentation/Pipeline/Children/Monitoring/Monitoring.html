@@ -1,136 +1,216 @@
 <!DOCTYPE html>
 <html>
-<head><title>Monitoring</title></head>
+
+<head>
+  <title>Monitoring</title>
+</head>
+
 <body>
-<h2>Feature overview</h2>
-<p>Read this feature as the continuation of <cross-reference-widget type="2" nodeId="24" pathLabel="Batch transform" conceptName="Feature overview"></cross-reference-widget>: System 2 declares six monitoring needs; System 3 consumes its completed batch outputs and implements the calculations below.</p>
-<p>The reference is Dennis’s <a href="https://github.com/marstonsward/aai-540-customer-churn/pull/56">PR #56</a> at <code>0740804</code>. The personal monitoring code now follows that implementation, including its limitations. The same six requirements appear in the same order on both pages. The contract calls its monitoring list “for orientation”; its rule to consume the existing outreach flag is explicit.</p>
-<p>In the table, batch files are <code>inference/cell2cell/&lt;run-id&gt;/{manifest.json,scores.csv,features.csv}</code>. “Report” means <code>monitoring/cell2cell/&lt;run-id&gt;/drift_report.json</code>. All paths below use the personal bucket <code>s3://customer-churn-pipeline-a81b79/</code> unless identified as team paths.</p>
+  <h2>Feature overview</h2>
+  <p>Monitoring answers four questions about each batch: has the customer data changed, is the model predicting churn correctly, are customer groups being flagged at different rates, and how many customers were scored and flagged?</p>
+  <image-widget type="centeredInContainer" fileName="MonitoringDashboard.png"></image-widget>
+  <h3>Has the data changed?</h3>
   <div class="overflowBlock">
     <table class="tg">
       <thead>
         <tr>
-          <th>System 2 expectation</th>
-          <th>System 3 calculation</th>
-          <th>Input sources</th>
-          <th>Result, dashboard and alarm</th>
-          <th>Coverage / limitation</th>
+          <th>Dashboard display</th>
+          <th>What it measures</th>
+          <th>How to interpret it</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>1. PSI per feature against a reference window</td>
-          <td><latex-widget inline="true">\mathrm{PSI}=\sum_i(q_i-p_i)\ln(q_i/p_i)</latex-widget> compares reference proportions <latex-widget inline="true">p_i</latex-widget> with batch proportions <latex-widget inline="true">q_i</latex-widget>. Both are floored at <latex-widget inline="true">10^{-6}</latex-widget>. Numeric bins use training quantiles; text features use categories.</td>
-          <td>Batch <code>features.csv</code> and saved <code>baseline.json</code>. Dennis fits the baseline from a republished training split; our storage adapter reads the original split.</td>
-          <td>Report <code>drift.psi</code> contains each feature. CloudWatch receives <code>MaxFeaturePSI, FeaturesWarning, FeaturesInvestigate</code>. Dashboard shows maximum PSI and investigation count; drift alarm fires at PSI ≥ 0.2.</td>
-          <td>Implemented with a limitation: constant numeric features are omitted, and some binary distributions collapse into one bin, producing PSI 0 even after a large change.</td>
+          <td>Biggest shift (PSI)</td>
+          <td>The largest Population Stability Index among the compared features. PSI measures how much a feature’s distribution differs from the baseline.</td>
+          <td>Below 0.1: little change. From 0.1 to below 0.2: a change to watch. At least 0.2: investigate.</td>
         </tr>
         <tr>
-          <td>2. Score drift</td>
-          <td>No score-distribution comparison is calculated.</td>
-          <td><code>scores.csv → churn_probability</code> is available, but there is no reference score distribution.</td>
-          <td>No report field, dashboard chart or alarm.</td>
-          <td>Not implemented. Feature PSI and flag rate do not measure score drift.</td>
+          <td>Features past 0.2</td>
+          <td>The number of features whose PSI is at least 0.2.</td>
+          <td>Zero means none of the compared features reached the investigation threshold.</td>
         </tr>
         <tr>
-          <td>3. Flag rate</td>
-          <td><code>flagged</code> = sum of stored <code>outreach_flag</code>; <code>rows</code> = number of score rows; flag rate = flagged / rows.</td>
-          <td>Batch <code>scores.csv → outreach_flag</code> and <code>manifest.json → flagged</code>.</td>
-          <td>Report <code>flags</code> includes counts, rate, agreement with manifest and a zero-flag indicator. CloudWatch/dashboard show scored, flagged and flag rate. <code>NobodyFlagged</code> drives an alarm.</td>
-          <td>Partially fulfilled: no expected-rate comparison or explicit fallback treatment for <code>threshold.outreach_policy=top_k</code>.</td>
-        </tr>
-        <tr>
-          <td>4. Model quality when labels arrive later</td>
-          <td>Join labels by customer ID, then recompute predictions as <code>churn_probability &gt; threshold.value</code>. Count TP, FP, FN, TN. Precision = TP/(TP+FP); recall = TP/(TP+FN); accuracy = (TP+TN)/N. <latex-widget inline="true">F_\beta=\frac{(1+\beta^2)PR}{\beta^2P+R}</latex-widget> gives F1 and F2, with P = precision and R = recall.</td>
-          <td>Batch <code>scores.csv → customerid, churn_probability</code>, <code>manifest.json → threshold.value</code> and explicitly supplied labels CSV <code>customerid, churn_label</code>.</td>
-          <td>Report <code>quality</code> contains confusion counts, accuracy, precision, recall, F1, F2 and labelled predicted-positive rate. <code>label_join</code> records match coverage/counts. CloudWatch publishes the five quality metrics and coverage; dashboard shows precision, recall, F2 and coverage. F2 alarm: below 0.0017.</td>
-          <td>Metrics exist, but the contract explicitly requires reading stored <code>outreach_flag</code>. Recomputing with &gt; differs from System 2’s ≥. Undefined F1/F2 can be omitted rather than reported as zero.</td>
-        </tr>
-        <tr>
-          <td>5. Bias slices</td>
-          <td>Reconstruct credit rating from one-hot columns. Compare reference group A (default <code>1-highest</code>) with others D: <latex-widget inline="true">DI=r_D/r_A</latex-widget>, <latex-widget inline="true">DPPL=r_A-r_D</latex-widget>, plus recall difference RD and accuracy difference AD. Also calculate quality for each individual credit-rating category when it has ≥100 rows and both labels.</td>
-          <td>The labelled score join from row 4 plus <code>features.csv → creditrating__…</code>. Recomputed predictions are used here too. There is no join to curated demographic columns.</td>
-          <td>Report <code>bias</code> and <code>subgroups</code>. CloudWatch publishes <code>DI_CreditRating, FourFifthsBreach, BiasAssessed</code> when applicable; dashboard shows DI and assessment status. Bias requires ≥20 flagged labelled rows; DI outside 0.8–1.25 triggers the alarm.</td>
-          <td>Different scope: credit rating only, reconstructed from encoded features. An undefined DI can count as a breach. The band is a screening signal, not proof of fairness.</td>
-        </tr>
-        <tr>
-          <td>6. Baseline per model</td>
-          <td>Persist reference bins/categories, proportions and version metadata under the configured feature version. Later runs reuse that file.</td>
-          <td>Operator-supplied training execution and configured <code>CURATED_VERSION, PREPROCESSING_CONTRACT, MODEL_VERSION, FEATURE_VERSION</code>. Dennis does not use the batch’s package ARN/contract checksum to validate baseline identity.</td>
-          <td><code>monitoring/cell2cell/&lt;feature-version&gt;/baseline.json</code>. Baseline identity is not a dashboard metric.</td>
-          <td>Not fulfilled as a per-model association: multiple models with the same feature version share the baseline location; fitting again replaces it.</td>
+          <td>Biggest shift, run by run</td>
+          <td>The history of the maximum PSI measurement.</td>
+          <td>Shows whether the largest feature shift is increasing or decreasing over time.</td>
         </tr>
       </tbody>
     </table>
   </div>
-<p>TP, FP, FN and TN are true positives, false positives, false negatives and true negatives. A positive label means actual churn. Group flag rate is denoted by <latex-widget inline="true">r</latex-widget>. Quality and bias require supplied labels; the live holdout has none. Dennis’s optional labelled replay demonstrates these calculations on a training/validation/test split; it is not new production ground truth.</p>
-<p>Supporting metrics are <code>JobSucceeded</code> (1 on a successful monitoring run), scored/flagged counts, and label coverage (matched/scored), with missing and unmatched label counts in the report. The fifth alarm checks for no successful monitoring measurement across seven daily periods. No explicit failure metric is published.</p>
-<p>Reference code: <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/0740804b7b67df392b7b130fd264d392009d98f9/src/monitoring.py">calculations and metric payload</a>, <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/0740804b7b67df392b7b130fd264d392009d98f9/scripts/run_monitoring.py">run orchestration</a>, and <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/0740804b7b67df392b7b130fd264d392009d98f9/infrastructure/terraform/monitoring/dashboard.json.tftpl">dashboard</a>. Their local counterparts are <code>monitoring/metrics.py</code>, <code>monitoring/run_monitoring.py</code> and <code>monitoring/dashboard.json.tftpl</code>.</p>
-<h3>Correspondence with the personal repo</h3>
-<p>The calculations, subgroup reports, feature-version baseline, metric payload, dashboard and alarm behavior follow Dennis’s implementation. The retained adaptations only connect it to this repo:</p>
+  <h3>Is it still accurate?</h3>
   <div class="overflowBlock">
     <table class="tg">
       <thead>
         <tr>
-          <th>Area</th>
-          <th>Dennis’s repo</th>
-          <th>Personal repo</th>
+          <th>Dashboard display</th>
+          <th>What it measures</th>
+          <th>How to interpret it</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>Configuration and names</td>
-          <td>Team <code>config.py</code> plus Terraform variables.</td>
-          <td><code>monitoring/settings.py</code> maps exported <code>.env</code> values and root <code>config.py</code> to the same settings. Bucket, namespace and resource names use this project’s configuration.</td>
+          <td>Precision and recall, % — precision</td>
+          <td>Among flagged customers with known churn labels, the percentage who actually churned.</td>
+          <td>Higher means fewer false alarms among the customers flagged.</td>
         </tr>
         <tr>
-          <td>Training inputs</td>
-          <td>Republished <code>monitoring/cell2cell/baseline-inputs/&lt;execution-id&gt;/&lt;split&gt;.csv</code> and shared preprocessing parameters.</td>
-          <td>Original <code>pipeline/&lt;execution-id&gt;/process/&lt;split&gt;/&lt;split&gt;.csv</code> and <code>process/contract/preprocessing_parameters.json</code>. No publishing step is needed for access from our Learner Lab identity.</td>
+          <td>Precision and recall, % — recall</td>
+          <td>Among customers who actually churned, the percentage the model flagged.</td>
+          <td>Higher means fewer churners were missed.</td>
         </tr>
         <tr>
-          <td>Replay model and evaluation</td>
-          <td>Model under the execution’s <code>xgboost/</code> folder; evaluation at <code>evaluation.json</code>.</td>
-          <td>Same execution selection, using this repo’s training-job folder and <code>evaluation/evaluation.json</code>. Native model bytes are read directly from the archive.</td>
+          <td>F2, %</td>
+          <td>A combined precision-and-recall score that gives more weight to recall.</td>
+          <td>Higher is better. The configured quality alarm threshold is 0.17%.</td>
         </tr>
         <tr>
-          <td>S3 writes</td>
-          <td>Monitoring report/baseline writes use bucket encryption defaults.</td>
-          <td>Report/baseline writes explicitly use <code>AES256</code>, matching this repo’s bucket convention.</td>
+          <td>F2, run by run</td>
+          <td>The history of F2 measurements, displayed as percentages.</td>
+          <td>Shows whether this measure of model quality is improving or deteriorating.</td>
         </tr>
       </tbody>
     </table>
   </div>
-<p>No additional monitoring capability has been added to fill the gaps in the first table. In particular, live, replay and simulation measurements now share the same CloudWatch series as in Dennis’s implementation. The previous personal baseline folders, if any exist, are not deleted or migrated.</p>
-<h2>Component analysis</h2>
-<h3>Diagram</h3>
-<diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
-<h3>Key AWS actors and concepts</h3>
-<p>S3 stores the batch files, baseline and report. CloudWatch stores aggregate metrics, displays them on a dashboard and checks alarm thresholds. The calculations run locally; there is no SageMaker monitoring job.</p>
-<h2>Sequence analysis</h2>
-<h3>Provision monitoring</h3>
-<h4>Overview</h4>
-<diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
-<p>Terraform creates the dashboard and five alarms: feature drift, F2, credit-rating disparity, nobody flagged and stale monitoring. It does not schedule monitoring or retrain the model. There are no notification actions.</p>
-<p>The F2 floor of <code>0.0017</code> comes from Dennis’s measured runs; it has not been calibrated to our model. All alarms except freshness treat missing data as not breaching. The copied dashboard’s “everything is fine” wording must not be read as evidence that quality or bias was measured: an unlabeled batch supplies neither.</p>
-<h4>Artifacts and effects analysis</h4>
-<h5>Versioned processes and outputs</h5>
-<p>Terraform manages <code>churn-rebuild-monitoring</code> and five alarms named with <code>churn-rebuild</code>. Configuration comes from the exported <code>.env</code>.</p>
-<h5>S3 layout after the step</h5>
-<p>No S3 reads or writes.</p>
-<h5>Dataset before and after</h5>
-<p>No dataset changes.</p>
-<h3>Analyze a completed batch</h3>
-<h4>Overview</h4>
-<diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
-<p>The operator first supplies a training execution to fit the baseline. This writes the feature-version baseline; later monitoring runs load it. The script reads a completed batch’s manifest, scores and features, calculates feature PSI and flag rate, and optionally joins supplied labels for quality, bias and per-credit-rating subgroup results.</p>
-<p>Labels are selected explicitly, including for replay. The script does not automatically read a labels URI from the manifest. Without labels it skips quality/bias; a supplied labels file with no matching customers causes quality calculation to fail. It recomputes decisions from probabilities for quality/bias as described in row 4 above.</p>
-<p>The optional replay selects an execution, registry version and split, loads that execution’s model, and uses its evaluation cutoff unless overridden. It can multiply a chosen feature by a supplied factor to simulate drift. It writes a separate batch with <code>replay: true</code>, simulation metadata when applicable, and positional IDs such as <code>t00000</code>. Those IDs match within the replay’s files; they are not real customer IDs. This matches the reference code, despite its accompanying document saying otherwise.</p>
-<h4>Artifacts and effects analysis</h4>
-<h5>Versioned processes and outputs</h5>
-<p>The baseline is keyed by feature version and contains configured model/preprocessing version metadata. Batch reports are keyed by batch run ID. The baseline is not validated against the approved model in the batch manifest.</p>
-<h5>S3 layout after the step</h5>
-<pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+  <h3>Is it fair?</h3>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Dashboard display</th>
+          <th>What it measures</th>
+          <th>How to interpret it</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Fairness ratio</td>
+          <td>The flag rate for customers outside the highest credit-rating group relative to the flag rate for customers in that group.</td>
+          <td>1 means equal flag rates. Above 1 means the other customers are flagged more often; below 1 means less often. The configured investigation band is 0.8–1.25.</td>
+        </tr>
+        <tr>
+          <td>Assessed this run</td>
+          <td>Whether the run met the minimum of 20 flagged customers for the fairness comparison.</td>
+          <td>1 means assessed; 0 means not assessed. Zero does not mean the model is fair.</td>
+        </tr>
+        <tr>
+          <td>Fairness ratio, run by run</td>
+          <td>The history of the flag-rate ratio.</td>
+          <td>Shows how the disparity changes over time relative to the 0.8 and 1.25 boundaries.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>What happened in the last run?</h3>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Dashboard display</th>
+          <th>What it measures</th>
+          <th>How to interpret it</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Scored</td>
+          <td>The number of customers given a churn prediction.</td>
+          <td>The size of the inference batch.</td>
+        </tr>
+        <tr>
+          <td>Flagged for a call</td>
+          <td>The number of customers selected for contact.</td>
+          <td>The number of customers the retention team would contact.</td>
+        </tr>
+        <tr>
+          <td>Flag rate</td>
+          <td>The percentage of scored customers selected for contact.</td>
+          <td>How large a share of the batch is flagged.</td>
+        </tr>
+        <tr>
+          <td>Outcomes known</td>
+          <td>The percentage of scored customers matched to a known actual churn label.</td>
+          <td>100% means every scored customer has a matched label. A blank display means no label-coverage measurement was published.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Alarms</h3>
+  <p>The dashboard’s <strong>Right now</strong> panel displays five alarm states.</p>
+  <div class="overflowBlock">
+    <table class="tg">
+      <thead>
+        <tr>
+          <th>Alarm</th>
+          <th>What it checks</th>
+          <th>When it turns red</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>drift</td>
+          <td>The maximum feature PSI.</td>
+          <td>PSI is at least 0.2.</td>
+        </tr>
+        <tr>
+          <td>quality</td>
+          <td>F2.</td>
+          <td>F2 falls below 0.17%.</td>
+        </tr>
+        <tr>
+          <td>bias</td>
+          <td>The fairness comparison.</td>
+          <td>An assessed comparison reports a breach of the 0.8–1.25 band.</td>
+        </tr>
+        <tr>
+          <td>nobody-flagged</td>
+          <td>Whether any customers were selected for contact.</td>
+          <td>A batch flags zero customers.</td>
+        </tr>
+        <tr>
+          <td>stale</td>
+          <td>Whether monitoring is still publishing successful runs.</td>
+          <td>No successful monitoring measurement is available across seven daily periods.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A blank measurement is not a zero. A green alarm means its configured condition is not in alarm; it does not establish that every measurement was available.</p>
+  <h3>How it works</h3>
+  <ol>
+    <li><strong>Read the inputs.</strong> Read the completed inference batch, the baseline for comparisons that need it, and actual churn labels when available.</li>
+    <li><strong>Generate the report.</strong> Calculate the measurements and save the monitoring report.</li>
+    <li><strong>Publish the measurements.</strong> Send them to CloudWatch. The dashboard displays them and the alarms evaluate them. Refreshing the dashboard shows the published results; it does not recalculate them.</li>
+  </ol>
+  <h2>Component analysis</h2>
+  <h3>Diagram</h3>
+  <diagram-widget fileName="ComponentDiagram.md"></diagram-widget>
+  <h3>Key AWS actors and concepts</h3>
+  <p>S3 stores the batch files, baseline and report. CloudWatch stores aggregate metrics, displays them on a dashboard and checks alarm thresholds. The calculations run locally; there is no SageMaker monitoring job.</p>
+  <h2>Sequence analysis</h2>
+  <h3>Provision monitoring</h3>
+  <h4>Overview</h4>
+  <diagram-widget fileName="SequenceDiagram_Action_1.md"></diagram-widget>
+  <p>Terraform creates the dashboard and five alarms: feature drift, F2, credit-rating disparity, nobody flagged and stale monitoring. It does not schedule monitoring or retrain the model. There are no notification actions.</p>
+  <p>The F2 floor of <code>0.0017</code> comes from Dennis’s measured runs; it has not been calibrated to our model. All alarms except freshness treat missing data as not breaching. The copied dashboard’s “everything is fine” wording must not be read as evidence that quality or bias was measured: an unlabeled batch supplies neither.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>Terraform manages <code>churn-rebuild-monitoring</code> and five alarms named with <code>churn-rebuild</code>. Configuration comes from the exported <code>.env</code>.</p>
+  <h5>S3 layout after the step</h5>
+  <p>No S3 reads or writes.</p>
+  <h5>Dataset before and after</h5>
+  <p>No dataset changes.</p>
+  <h3>Analyze a completed batch</h3>
+  <h4>Overview</h4>
+  <diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
+  <p>The operator first supplies a training execution to fit the baseline. This writes the feature-version baseline; later monitoring runs load it. The script reads a completed batch’s manifest, scores and features, calculates feature PSI and flag rate, and optionally joins supplied labels for quality, bias and per-credit-rating subgroup results.</p>
+  <p>Labels are selected explicitly, including for replay. The script does not automatically read a labels URI from the manifest. Without labels it skips quality/bias; a supplied labels file with no matching customers causes quality calculation to fail. It recomputes decisions from probabilities for quality/bias as described in row 4 above.</p>
+  <p>The optional replay selects an execution, registry version and split, loads that execution’s model, and uses its evaluation cutoff unless overridden. It can multiply a chosen feature by a supplied factor to simulate drift. It writes a separate batch with <code>replay: true</code>, simulation metadata when applicable, and positional IDs such as <code>t00000</code>. Those IDs match within the replay’s files; they are not real customer IDs. This matches the reference code, despite its accompanying document saying otherwise.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>The baseline is keyed by feature version and contains configured model/preprocessing version metadata. Batch reports are keyed by batch run ID. The baseline is not validated against the approved model in the batch manifest.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ inference/cell2cell/&lt;run-id&gt;/
 │  ├─ manifest.json                                         [READ]
 │  ├─ scores.csv                                           [READ]
@@ -140,8 +220,8 @@
 │  └─ contract/preprocessing_parameters.json                [READ when fitting]
 └─ monitoring/cell2cell/&lt;feature-version&gt;/
    <span style="background-color: #e8f5e9; color: #1b5e20;">└─ baseline.json                                         [WRITE when fitting; READ each run]</span></pre>
-<p>Green denotes the new baseline file; fitting again overwrites it. Optional labels are read from the explicitly supplied key in this bucket. Replay adds its own <code>scores.csv</code>, <code>features.csv</code>, <code>labels.csv</code> and <code>manifest.json</code> under a new timestamp run ID, with a <code>-sim</code> suffix for a drift simulation.</p>
-<h5>Dataset before and after</h5>
+  <p>Green denotes the new baseline file; fitting again overwrites it. Optional labels are read from the explicitly supplied key in this bucket. Replay adds its own <code>scores.csv</code>, <code>features.csv</code>, <code>labels.csv</code> and <code>manifest.json</code> under a new timestamp run ID, with a <code>-sim</code> suffix for a drift simulation.</p>
+  <h5>Dataset before and after</h5>
   <div class="overflowBlock">
     <table class="tg">
       <thead>
@@ -175,23 +255,23 @@
       </tbody>
     </table>
   </div>
-<h3>Publish the report and metrics</h3>
-<h4>Overview</h4>
-<diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
-<p>The report is written before aggregate metrics are published to <code>churn-rebuild/ChurnMonitoring</code>. All runs share the <code>ModelName=churn-rebuild</code> dimension. Replay and simulation flags remain in the report’s manifest; CloudWatch does not separate them. A replay therefore also contributes to the freshness alarm.</p>
-<p>Per-feature PSI, confusion counts, subgroup details and DPPL/RD/AD remain in the S3 report. CloudWatch receives the aggregate metrics identified in the first table; undefined values are omitted. Publishing metrics does not launch a new pipeline execution.</p>
-<h4>Artifacts and effects analysis</h4>
-<h5>Versioned processes and outputs</h5>
-<p>Rerunning monitoring for a batch replaces that batch’s report and publishes another measurement. The training manifest and approval contract are not updated.</p>
-<h5>S3 layout after the step</h5>
-<pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+  <h3>Publish the report and metrics</h3>
+  <h4>Overview</h4>
+  <diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
+  <p>The report is written before aggregate metrics are published to <code>churn-rebuild/ChurnMonitoring</code>. All runs share the <code>ModelName=churn-rebuild</code> dimension. Replay and simulation flags remain in the report’s manifest; CloudWatch does not separate them. A replay therefore also contributes to the freshness alarm.</p>
+  <p>Per-feature PSI, confusion counts, subgroup details and DPPL/RD/AD remain in the S3 report. CloudWatch receives the aggregate metrics identified in the first table; undefined values are omitted. Publishing metrics does not launch a new pipeline execution.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>Rerunning monitoring for a batch replaces that batch’s report and publishes another measurement. The training manifest and approval contract are not updated.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ …
 └─ monitoring/cell2cell/
    ├─ &lt;feature-version&gt;/baseline.json
    <span style="background-color: #e8f5e9; color: #1b5e20;">└─ &lt;run-id&gt;/drift_report.json                              [WRITE]</span></pre>
-<p>Green denotes the report added on its first run; subsequent runs update that same file.</p>
-<h5>Dataset before and after</h5>
-<p>No batch rows or columns change.</p>
+  <p>Green denotes the report added on its first run; subsequent runs update that same file.</p>
+  <h5>Dataset before and after</h5>
+  <p>No batch rows or columns change.</p>
   <div class="overflowBlock">
     <table class="tg">
       <thead>
@@ -233,4 +313,5 @@
     </table>
   </div>
 </body>
+
 </html>
