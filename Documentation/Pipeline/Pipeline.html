@@ -86,93 +86,91 @@
 
   <p>Example:</p>
 
-  <pre class="overflowBlock"><code>s3://customer-churn-pipeline-a81b79/
-├─ athena-results/
-│     ├─ 45f5d003….txt
-│     └─ tables/
-│         ├─ 448ba7d3…-manifest.csv
-│         └─ 448ba7d3….metadata
+  <pre class="overflowBlock"><code>s3://aai-540-group-2/
+├─ raw/cell2cell/
+│     ├─ cell2celltrain.csv
+│     ├─ cell2cellholdout.csv
+│     └─ provenance.json
 │
-├─ curated/
-│   └─ cell2cell/
-│       └─ v1/
-│           ├─ split=holdout/
-│           │   └─ 20261001…233b ← Parquet file
-│           └─ split=train/
-│               └─ 20261001…61f9 ← Parquet file
+├─ curated/cell2cell/v1/
+│     ├─ split=train/ … [Parquet]
+│     └─ split=holdout/ … [Parquet]
+│
+├─ preprocessing/cell2cell/v1/
+│     └─ preprocessing_parameters.json
 │
 ├─ pipeline/
-│   ├─ code/
-│   │   ├─ evaluate.py
-│   │   ├─ ingest.py
-│   │   ├─ preprocess.py
-│   │   └─ process.py
-│   │
-│   ├─ 81k7gfjq2h8n/ ← Earlier failed execution
-│.  │.  ├─ execution_manifest.json
-│   │   └─ process/
-│   │       ├─ contract/
-│   │       │   └─ preprocessing_parameters.json
-│   │       ├─ identifiers/
-│   │       │   ├─ test.csv
-│   │       │   ├─ train.csv
-│   │       │   └─ validation.csv
-│   │       ├─ test/
-│   │       │   └─ test.csv
-│   │       ├─ train/
-│   │       │   └─ train.csv
-│   │       └─ validation/
-│   │           └─ validation.csv
-│   │
-│   └─ vh4m3uvvf3mo/ ← Successful execution
-│.    . ├─ execution_manifest.json
-│       ├─ feature-store/
-│       │   └─ ingestion.json ← Ingestion report
-│       └─ process/
-│           ├─ contract/
-│           │   └─ preprocessing_parameters.json
-│           ├─ identifiers/
-│           │   ├─ test.csv
-│           │   ├─ train.csv
-│           │   └─ validation.csv
-│           ├─ test/
-│           │   └─ test.csv
-│           ├─ train/
-│           │   └─ train.csv
-│           └─ validation/
-│               └─ validation.csv
+│     ├─ code/steps/ … [uploaded Python files and schema]
+│     ├─ 0acbztvtf6vq/
+│     │     ├─ execution_manifest.json
+│     │     ├─ process/
+│     │     │     ├─ contract/
+│     │     │     │     └─ preprocessing_parameters.json
+│     │     │     ├─ identifiers/
+│     │     │     │     ├─ train.csv
+│     │     │     │     ├─ validation.csv
+│     │     │     │     └─ test.csv
+│     │     │     ├─ train/train.csv
+│     │     │     ├─ validation/validation.csv
+│     │     │     └─ test/test.csv
+│     │     ├─ feature-store/
+│     │     │     └─ feature_store.json
+│     │     └─ baseline/scores/
+│     │         ├─ baseline.json
+│     │         ├─ validation.csv
+│     │         └─ test.csv
+│     └─ … [older executions]
 │
-├─ inference/ ← Created by batch inference
-│   └─ cell2cell/&lt;batch-run-id&gt;/
-│       ├─ _transform/
-│       │   ├─ input.csv
-│       │   └─ input.csv.out
-│       ├─ scores.csv
-│       ├─ features.csv
-│       └─ manifest.json
+├─ models/cell2cell/
+│     ├─ v1/
+│     │     ├─ 0acbztvtf6vq/
+│     │     │     ├─ evaluation.json
+│     │     │     ├─ logistic-regression/
+│     │     │     │     └─ model.joblib
+│     │     │     └─ xgboost/
+│     │     │         └─ pipelines-0acbztvtf6vq-Cell2CellTrain-O6Uko5PmCK/
+│     │     │             └─ output/model.tar.gz
+│     │     └─ … [older models and training artifacts]
+│     └─ approvals/cell2cell-churn/
+│         ├─ 0acbztvtf6vq/package-3/
+│         │     ├─ approved_contract.json
+│         │     ├─ evaluation.json
+│         │     ├─ model.tar.gz
+│         │     └─ preprocessing_parameters.json
+│         ├─ 9nogaautgdv4/package-2/ …
+│         ├─ 05l81yyxliar/package-1/ …
+│         └─ package-1/ …
 │
-├─ monitoring/ ← Created by monitoring
-│   └─ cell2cell/
-│       ├─ &lt;feature-version&gt;/baseline.json
-│       └─ &lt;batch-run-id&gt;/drift_report.json
+├─ inference/cell2cell/
+│     ├─ 20261006T220033Z/
+│     │     ├─ _transform/
+│     │     │     ├─ input.csv
+│     │     │     └─ input.csv.out
+│     │     ├─ features.csv
+│     │     ├─ scores.csv
+│     │     └─ manifest.json
+│     ├─ 20261005T123058Z/ …
+│     ├─ 20261005T075412Z/ …
+│     ├─ 20261001T180713Z/ …
+│     └─ 20261001T175034Z/ …
 │
-└─ models/
-    └─ cell2cell/
-        ├─ approvals/ ← Created when a model is approved and pinned
-        │   └─ churn-rebuild-models/
-        │       └─ &lt;execution-id&gt;/
-        │           └─ package-&lt;version&gt;/
-        │               ├─ approved_contract.json
-        │               ├─ model.tar.gz
-        │               ├─ preprocessing_parameters.json
-        │               └─ evaluation.json
-        └─ v1/
-            └─ vh4m3uvvf3mo/ ← Same successful execution
-                ├─ evaluation/
-                │   └─ evaluation.json
-                └─ pipelines-vh4m3uvvf3mo-Train-iGjSdVFsi5/
-                    └─ output/
-                        └─ model.tar.gz
+└─ monitoring/cell2cell/
+      ├─ baseline-inputs/
+      │     ├─ 0acbztvtf6vq/
+      │     │     ├─ train.csv
+      │     │     ├─ validation.csv
+      │     │     ├─ test.csv
+      │     │     └─ manifest.json
+      │     ├─ 9nogaautgdv4/ … [same four filenames]
+      │     ├─ h1hr8su33v5d/ … [same four filenames]
+      │     └─ 05l81yyxliar/ … [same four filenames]
+      ├─ v1/
+      │     └─ baseline.json
+      ├─ 20261006T220033Z/
+      │     └─ drift_report.json
+      └─ 20261005T075412Z/
+          └─ drift_report.json
+  
 </code></pre>
 
   <p><code>pipeline/</code> is the odd one out: it is keyed by execution rather than by dataset, because it records a run rather than an artifact. Every stage updates the same manifest in turn.</p>
