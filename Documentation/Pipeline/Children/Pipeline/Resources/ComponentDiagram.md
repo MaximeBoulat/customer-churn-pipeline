@@ -10,19 +10,19 @@ direction LR
     Preparation --> Training 
     Training --> Evaluation
 
- 
+   
 end
-Start@{ shape: start }
+Start@{ shape: start } 
 subgraph Local["Local machine"]
     Operator["Operator"]
     Terraform["Terraform<br/>pipeline/main.tf and definition.tf"]
     Launcher["run_pipeline.py"]
 end   
 subgraph AWS["AWS — Learner Lab"]
-    Pipeline["SageMaker pipeline"]
-    FeatureGroup["Feature Group"]
+    Pipeline[("SageMaker pipeline")]
+    FeatureGroup[("Feature Group")]
     
-    Registry["Model package group<br/>PendingManualApproval candidates"]
+    Registry[("Model package group<br/>PendingManualApproval candidates")]
 end
 
 ECR["Amazon ECR<br/>AWS XGBoost container image"]
@@ -38,12 +38,20 @@ Terraform -->|creates| FeatureGroup
 Terraform -->|creates| Registry
 Launcher -->|starts execution| Pipeline
 Preparation -->|ingests| FeatureGroup
-Pipeline -->|runs| VMs
+Pipeline -->|runs| VMs 
 Evaluation -->|register| Registry
 VMs ------>|pulls container image| ECR
 Preparation -->|reads and writes| S3
 Training -->|reads CSVs, writes model| S3
 Evaluation -->|reads model and test CSV, writes metrics| S3
+
 classDef dataStore fill:#E3F2FD,stroke:#64B5F6
+classDef registry fill:#fae7cd,stroke:#876029
+
 class S3 dataStore
+class Pipeline,FeatureGroup,Registry registry
+
+
+
+
 ```

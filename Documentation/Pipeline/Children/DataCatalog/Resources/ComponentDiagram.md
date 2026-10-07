@@ -11,7 +11,7 @@ flowchart TB
     subgraph AWS["AWS — Learner Lab account"]
         Glue[("Glue Data Catalog<br/>Database, raw table,<br/>curated table and training view")]
         Athena["Athena<br/>Query engine and workgroup"] 
-    end
+    end 
 
     subgraph Storage["Storage — S3 buckets in main account"]
         S3[("S3<br/>Team bucket: raw CSVs<br/>Personal bucket: curated Parquet<br/>and Athena query results")]
@@ -28,5 +28,10 @@ flowchart TB
     Glue -.->|describes schemas and data locations| S3
 
     classDef dataStore fill:#E3F2FD,stroke:#64B5F6
-    class Glue,S3 dataStore
+    classDef registry fill:#fae7cd,stroke:#876029
+    
+    class S3 dataStore
+    class Glue registry
+
+
 ```

@@ -15,5 +15,7 @@ flowchart TB
     Script -->|publish metrics| CloudWatch
     Script -->|read inputs and write report| S3
     classDef dataStore fill:#E3F2FD,stroke:#64B5F6
-    class S3 dataStore
+    class S3 dataStore 
+
+    
 ```

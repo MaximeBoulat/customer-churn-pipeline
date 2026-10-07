@@ -3,19 +3,23 @@ flowchart TB
     subgraph Local["Local machine"]
         Operator["Operator"]
         Script["Approval and pinning script"]
-    end
+    end 
     subgraph AWS["AWS"]
-        Execution["Pipeline execution and jobs"]
+        Pipeline[("Sagemaker pipeline")]
         Registry["Model Registry"]
     end
 
     S3[("S3 originals and pinned artifacts")]
-
+ 
     Operator --> Script
-    Script -->|find package and preprocessing output| Execution
+    Script -->|find package and preprocessing output| Pipeline
     Script -->|read package and set Approved| Registry
     Script -->|read originals and write pinned copies| S3
-
+  
     classDef dataStore fill:#E3F2FD,stroke:#64B5F6
+    classDef registry fill:#fae7cd,stroke:#876029
+
     class S3 dataStore
+    class Pipeline registry 
+
 ```

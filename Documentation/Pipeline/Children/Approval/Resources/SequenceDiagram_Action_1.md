@@ -5,24 +5,24 @@ sequenceDiagram
         participant Script as Approval script
     end
     box AWS
-        participant Execution as Pipeline execution and jobs
+        participant Pipeline as Sagemaker pipeline
         participant Registry as Model Registry
 
     end 
 
     box Storage
         participant S3 as S3 storage
-
+ 
     end
 
     Note over Operator,S3: Approve and pin a reviewed candidate
     Operator->>Script: execution ARN and approval decision
-    Script->>Execution: find registration, training and preprocessing steps
-    Execution-->>Script: package ARN and job references
+    Script->>Pipeline: find registration, training and preprocessing steps
+    Pipeline-->>Script: package ARN and job references
     Script->>Registry: read model package and status
     Registry-->>Script: model, image and evaluation references
-    Script->>Execution: read training and preprocessing job outputs
-    Execution-->>Script: model and preprocessing locations
+    Script->>Pipeline: read training and preprocessing job outputs
+    Pipeline-->>Script: model and preprocessing locations
     Script->>S3: read original model, preprocessing and evaluation
     S3-->>Script: artifact contents
     Script->>S3: write pinned copies and approved contract
