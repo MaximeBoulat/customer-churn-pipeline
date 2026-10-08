@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Replay a labelled split through the approved model as a contract-shaped run
-with labels.csv, for the two monitors that need ground truth. Manifest says replay.
+with labels.csv, for model quality calculations that need ground truth. Manifest says replay.
 --drift marks a disclosed simulation (-sim run id) for M5-03. Scores locally, no cost.
 
     uv run --with 'xgboost==1.7.6' python monitoring/replay_labelled_batch.py \

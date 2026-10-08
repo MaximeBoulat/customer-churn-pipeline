@@ -11,54 +11,6 @@
 
   <p>System 2 applies an approved model to the unlabeled holdout. It reuses the pinned preprocessing, runs SageMaker Batch Transform, and compares each raw score with the pinned evaluation cutoff to produce an outreach flag. It publishes customer scores and prepared features for monitoring. No training, evaluation against ground truth or probability recalibration occurs here.</p>
 
-  <p>The starting point is section 6 of the team's <a href="https://github.com/marstonsward/aai-540-customer-churn/blob/main/docs/m5-01-batch-output-contract.md">System 2–System 3 contract</a>. Its six monitoring expectations appear below in their original order. System 2 publishes the inputs; System 3 performs the monitoring calculations.</p>
-    
-  <p>In this table, <code>scores.csv</code>, <code>features.csv</code> and <code>manifest.json</code> all belong to <code>s3://customer-churn-pipeline-a81b79/inference/cell2cell/&lt;batch-run-id&gt;/</code>. These are the expectations, not the implementation. Follow the same numbered rows in <cross-reference-widget type="2" nodeId="25" pathLabel="Monitoring" conceptName="Feature overview"></cross-reference-widget> to see how Dennis’s System 3 fulfills or departs from each.</p>
-
-  <div class="overflowBlock">
-    <table class="tg">
-      <thead>
-        <tr>
-          <th>Metric / monitoring requirement</th>
-          <th>How it is calculated</th>
-          <th>Input sources</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>1. PSI per feature against a reference window</td>
-          <td>Compare each feature’s reference proportions <latex-widget inline="true">p_i</latex-widget> with current batch proportions <latex-widget inline="true">q_i</latex-widget> using fixed bins or categories: <latex-widget inline="true">\mathrm{PSI}=\sum_i(q_i-p_i)\ln(q_i/p_i)</latex-widget>.</td>
-          <td><code>features.csv</code> contains the prepared feature columns. System 3 supplies the saved reference distributions; customer IDs are excluded.</td>
-        </tr>
-        <tr>
-          <td>2. Score drift</td>
-          <td>Compare the distribution of predicted probabilities with a reference score distribution. The System 2 contract does not specify a statistic or threshold.</td>
-          <td><code>scores.csv → churn_probability</code>. A reference score distribution must also be supplied to System 3; the batch does not contain it.</td>
-        </tr>
-        <tr>
-          <td>3. Flag rate</td>
-          <td><latex-widget inline="true">\text{flag rate}=\frac{\text{flagged customers}}{\text{scored customers}}</latex-widget>. For a top-k fallback, report the policy and compare with its expected rate; do not describe it as cost-optimal.</td>
-          <td><code>scores.csv → outreach_flag</code>; <code>manifest.json → flagged, rows, threshold.outreach_policy, threshold.top_k</code>.</td>
-        </tr>
-        <tr>
-          <td>4. Model quality when labels arrive later</td>
-          <td>Join observed labels to the already-decided outreach flags; count TP, FP, FN and TN, then calculate quality metrics on matching customers only.</td>
-          <td><code>scores.csv → customerid, outreach_flag</code> joined by <code>customerid</code> to a separately supplied <code>churn_label</code>. Labels are not available in the live holdout.</td>
-        </tr>
-        <tr>
-          <td>5. Bias slices</td>
-          <td>Compare flag rates and, when outcomes exist, quality across customer groups. The System 2 contract leaves the particular comparisons to System 3.</td>
-          <td><code>scores.csv</code> joined by <code>customerid</code> to demographic columns in <code>curated/cell2cell/&lt;version&gt;/split=holdout/</code>; observed labels are additionally needed for group quality metrics.</td>
-        </tr>
-        <tr>
-          <td>6. Baseline per model</td>
-          <td>Associate the reference distributions with the approved model being monitored. This is an identity requirement, not a numeric metric.</td>
-          <td>The team contract names <code>manifest.json → model_package_arn, approved_contract_sha256</code>. This personal repo supplies the package ARN, execution ID and contract URI instead of a checksum. That storage difference does not remove the expectation of associating a baseline with the model.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
   <h2>Component analysis</h2>
 
   <h3>Diagram</h3>

@@ -97,7 +97,7 @@
       </tbody>
     </table>
   </div>
-  
+
   <h3>Disparate impact analysis</h3>
 
 
@@ -238,7 +238,7 @@
 
   <p>Terraform creates the dashboard and five alarms: feature drift, F2, credit-rating disparity, nobody flagged and stale monitoring. It does not schedule monitoring or retrain the model. There are no notification actions.</p>
 
-  <p>The F2 floor of <code>0.0017</code> comes from Dennis’s measured runs; it has not been calibrated to our model. All alarms except freshness treat missing data as not breaching. The copied dashboard’s “everything is fine” wording must not be read as evidence that quality or bias was measured: an unlabeled batch supplies neither.</p>
+  <p>The F2 floor of <code>0.0017</code> comes from Dennis’s measured runs; it has not been calibrated to our model. All alarms except freshness treat missing data as not breaching. The copied dashboard’s “everything is fine” wording must not be read as evidence that quality or bias was measured: an unlabeled batch supplies fairness measurements but no model quality measurements.</p>
 
   <h4>Artifacts and effects analysis</h4>
 
@@ -260,9 +260,9 @@
 
   <diagram-widget fileName="SequenceDiagram_Action_2.md"></diagram-widget>
 
-  <p>The operator first supplies a training execution to fit the baseline. This writes the feature-version baseline; later monitoring runs load it. The script reads a completed batch’s manifest, scores and features, calculates feature PSI and flag rate, and optionally joins supplied labels for quality, bias and per-credit-rating subgroup results.</p>
+  <p>The operator first supplies a training execution to fit the baseline. This writes the feature-version baseline; later monitoring runs load it. The script reads a completed batch’s manifest, scores and features, calculates feature PSI and flag rate, and compares credit-rating flag rates across all scored customers. Supplied labels additionally enable model quality and per-credit-rating performance results.</p>
 
-  <p>Labels are selected explicitly, including for replay. The script does not automatically read a labels URI from the manifest. Without labels it skips quality/bias; a supplied labels file with no matching customers causes quality calculation to fail. It recomputes decisions from probabilities for quality/bias as described in row 4 above.</p>
+  <p>Labels are selected explicitly, including for replay. The script does not automatically read a labels URI from the manifest. Without labels it skips model quality and per-group performance, but still calculates disparate impact; a supplied labels file with no matching customers causes quality calculation to fail. Fairness flags scores at or above the threshold; model quality retains the existing strictly-above comparison.</p>
 
   <p>The optional replay selects an execution, registry version and split, loads that execution’s model, and uses its evaluation cutoff unless overridden. It can multiply a chosen feature by a supplied factor to simulate drift. It writes a separate batch with <code>replay: true</code>, simulation metadata when applicable, and positional IDs such as <code>t00000</code>. Those IDs match within the replay’s files; they are not real customer IDs. This matches the reference code, despite its accompanying document saying otherwise.</p>
 
@@ -316,7 +316,7 @@
         </tr>
         <tr>
           <td>Optional <code>customerid, churn_label</code></td>
-          <td>One-to-one customer ID join; matched rows enter quality and bias.</td>
+          <td>One-to-one customer ID join; matched rows enter model quality and per-group recall/accuracy calculations. Disparate impact uses all scored customers, regardless of labels.</td>
           <td>Coverage and missing/unmatched counts recorded; no dataset split changes.</td>
         </tr>
       </tbody>
@@ -332,6 +332,108 @@
   <p>The report is written before aggregate metrics are published to <code>churn-rebuild/ChurnMonitoring</code>. All runs share the <code>ModelName=churn-rebuild</code> dimension. Replay and simulation flags remain in the report’s manifest; CloudWatch does not separate them. A replay therefore also contributes to the freshness alarm.</p>
 
   <p>Per-feature PSI, confusion counts, subgroup details and DPPL/RD/AD remain in the S3 report. CloudWatch receives the aggregate metrics identified in the first table; undefined values are omitted. Publishing metrics does not launch a new pipeline execution.</p>
+
+  <p>The report looks like this:</p>
+
+  <pre class="overflowBlock"><code>{
+"run_id": "20261008T055557Z",
+"manifest": {
+    "schema_version": 1,
+    "run_id": "20261008T055557Z",
+    "rows": 7657,
+    "flagged": 376,
+    "model_version": "churn-rebuild-models/3",
+    "execution_id": "87hh65toqnpd",
+    "threshold": {
+        "value": 0.555375850200653,
+        "prevalence": 0.02
+    },
+    "simulation": null,
+    "source": "labelled replay of the test split",
+    "replay": true
+},
+"drift": {
+    "psi": {
+        "monthlyrevenue": 0.000658,
+        "monthlyminutes": 0.001192,
+        "peakcallsinout": 0.002697
+        // ...70 features total
+    },
+    "max_psi": 0.002697,
+    "worst_feature": "peakcallsinout",
+    "features_investigate": [],
+    "features_warning": [],
+    "rows_scored": 7657,
+    "baseline_rows": 35733,
+    "baseline_created_at": "2026-10-08T07:44:19+00:00"
+},
+"flags": {
+    "rows": 7657,
+    "flagged": 376,
+    "flag_rate": 0.049105,
+    "matches_manifest": true,
+    "nobody_flagged": false
+},
+"label_join": {
+    "scored_rows": 7657,
+    "label_rows": 7657,
+    "matched": 7657,
+    "missing_labels": 0,
+    "unmatched_labels": 0,
+    "coverage": 1.0
+},
+"quality": {
+    "Accuracy": 0.722215,
+    "Precision": 0.606383,
+    "Recall": 0.103308,
+    "F1": 0.176539,
+    "F2": 0.123859,
+    "PredictedPositiveRate": 0.049105,
+    "confusion": {
+    "tp": 228,
+    "fp": 148,
+    "fn": 1979,
+    "tn": 5302
+    },
+    "labelled_rows": 7657
+},
+"bias": {
+    "assessed": true,
+    "flagged": 376,
+    "DPPL": -0.003131,
+    "DI": 1.067343,
+    "RD": -0.014130,
+    "AD": -0.017466,
+    "labelled_rows": 7657,
+    "n_advantaged": 1269,
+    "n_disadvantaged": 6388,
+    "four_fifths_breach": false
+},
+"subgroups": [
+  {
+      "segment": "2_high",
+      "rows": 2837,
+      "reported": true,
+      "Accuracy": 0.704618,
+      "Precision": 0.577640,
+      "Recall": 0.107764,
+      "F1": 0.181641,
+      "F2": 0.128702,
+      "PredictedPositiveRate": 0.056750,
+      "confusion": {
+          "tp": 93,
+          "fp": 68,
+          "fn": 770,
+          "tn": 1906
+      },
+    "labelled_rows": 2837
+    }
+// ...7 credit-rating groups total
+],
+
+"label_source": "inference/cell2cell/20261008T055557Z/labels.csv"
+}
+  </code></pre>
 
   <h4>Artifacts and effects analysis</h4>
 
@@ -384,7 +486,7 @@
         </tr>
         <tr>
           <td><code>bias</code></td>
-          <td>Credit-rating group differences, ratio, counts and assessment outcome, or null.</td>
+          <td>Credit-rating flag-rate ratio, difference, counts and assessment status. Recall and accuracy differences require labels and are null without them.</td>
         </tr>
         <tr>
           <td><code>subgroups</code></td>

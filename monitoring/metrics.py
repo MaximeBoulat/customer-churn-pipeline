@@ -271,31 +271,32 @@ MIN_FLAGGED_FOR_BIAS = config.MONITORING_MIN_FLAGGED_FOR_BIAS
 
 
 def bias_report(
-    labels: np.ndarray, probabilities: np.ndarray, facet: np.ndarray,
-    advantaged, threshold: float,
+    probabilities: np.ndarray, facet: np.ndarray, advantaged, threshold: float,
+    labels: np.ndarray | None = None,
 ) -> dict:
-    """Segment-sliced fairness in place of Clarify. DI outside [0.8, 1.25] is
-    the four-fifths rule, the one threshold here with a standard behind it."""
-    labels = np.asarray(labels).astype(int)
-    if labels.size == 0:
-        raise ValueError("no labelled records; bias cannot be scored")
-
-    predictions = (np.asarray(probabilities, dtype=float) > threshold).astype(int)
+    """Segment-sliced fairness in place of Clarify. The flag-rate ratio (DI, the
+    four-fifths rule) needs no outcomes, so it runs on every scored batch. Labels,
+    where a row has one, add the recall and accuracy differences."""
+    predictions = (np.asarray(probabilities, dtype=float) >= threshold).astype(int)
+    if predictions.size == 0:
+        raise ValueError("no scored records; bias cannot be scored")
     flagged = int(predictions.sum())
     if flagged < MIN_FLAGGED_FOR_BIAS:
         return {"assessed": False, "flagged": flagged,
                 "reason": f"{flagged} flagged; fewer than {MIN_FLAGGED_FOR_BIAS} "
                           "is too few for a flag-rate ratio to mean anything"}
     is_advantaged = np.asarray(facet) == advantaged
+    truth = (np.full(predictions.size, np.nan) if labels is None
+             else pd.to_numeric(pd.Series(np.asarray(labels)), errors="coerce").to_numpy(dtype=float))
+    known = ~np.isnan(truth)
 
     def rates(mask):
-        tp = int(((predictions == 1) & (labels == 1) & mask).sum())
-        fp = int(((predictions == 1) & (labels == 0) & mask).sum())
-        fn = int(((predictions == 0) & (labels == 1) & mask).sum())
-        tn = int(((predictions == 0) & (labels == 0) & mask).sum())
-        n = int(mask.sum())
-        return {"n": n, "ppr": _safe(tp + fp, n), "tpr": _safe(tp, tp + fn),
-                "acc": _safe(tp + tn, n)}
+        scored = mask & known
+        tp = int(((predictions == 1) & (truth == 1) & scored).sum())
+        fn = int(((predictions == 0) & (truth == 1) & scored).sum())
+        correct = int((predictions[scored] == truth[scored]).sum())
+        return {"n": int(mask.sum()), "ppr": _safe(int(predictions[mask].sum()), int(mask.sum())),
+                "tpr": _safe(tp, tp + fn), "acc": _safe(correct, int(scored.sum()))}
 
     a, d = rates(is_advantaged), rates(~is_advantaged)
     di = _safe(d["ppr"], a["ppr"])
@@ -307,6 +308,7 @@ def bias_report(
         "DI": di,
         "RD": a["tpr"] - d["tpr"],
         "AD": a["acc"] - d["acc"],
+        "labelled_rows": int(known.sum()),
         "n_advantaged": a["n"],
         "n_disadvantaged": d["n"],
         "four_fifths_breach": breached,

@@ -32,7 +32,7 @@
       "annotations": {"horizontal": [{"label": "alarm below", "value": ${f2_pct}, "color": "#d62728"}]}}},
 
     {"type": "text", "x": 0, "y": 15, "width": 6, "height": 6, "properties": {"markdown":
-      "### 3. Is it fair?\n\nAre customers with lower credit ratings being flagged more or less often than those with the highest? We divide one rate by the other.\n\n- exactly **1.0**: treated identically\n- anywhere from **0.8 to 1.25**: close enough, by the usual four-fifths rule\n- outside that: the alarm fires\n\nLike accuracy, this needs the real outcomes. It also needs enough flagged customers to be meaningful, so runs that flag fewer than ${min_flag} are not assessed rather than reported as noise."}},
+      "### 3. Is it fair?\n\nAre customers with lower credit ratings being flagged more or less often than those with the highest? We divide one rate by the other.\n\n- exactly **1.0**: treated identically\n- anywhere from **0.8 to 1.25**: close enough, by the usual four-fifths rule\n- outside that: the alarm fires\n\nThis comparison does not need ground-truth labels. It also needs enough flagged customers to be meaningful, so runs that flag fewer than ${min_flag} are not assessed rather than reported as noise."}},
     {"type": "metric", "x": 6, "y": 15, "width": 6, "height": 3, "properties": {"title": "Fairness ratio", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,
       "metrics": [["${namespace}", "DI_CreditRating", "ModelName", "${model}", {"label": "fine 0.8 to 1.25"}]]}},
     {"type": "metric", "x": 6, "y": 18, "width": 6, "height": 3, "properties": {"title": "Assessed this run", "region": "${region}", "view": "singleValue", "sparkline": false, "stat": "Average", "period": 60,

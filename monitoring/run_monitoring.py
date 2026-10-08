@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """System 3, one run: read a scored run, measure it, publish to CloudWatch.
-Quality and bias run only with --labels and are otherwise left out, not zeroed.
+Model quality requires --labels. Fairness compares flag rates without labels.
 
     python monitoring/run_monitoring.py --run-id <id> --baseline-from <execution-id>
     python monitoring/run_monitoring.py --run-id <id> [--labels s3-key] [--dry-run]
@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--baseline-from", metavar="EXECUTION_ID",
                         help="fit and save a baseline from this execution's training split first")
     parser.add_argument("--labels", metavar="S3_KEY",
-                        help="labelled csv with customerid and churn_label; enables quality and bias")
+                        help="labelled csv with customerid and churn_label; enables model quality and per-group performance")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -56,8 +56,10 @@ def main() -> None:
     print(f"  flags   {flags['flagged']} of {flags['rows']} ({flags['flag_rate']:.2%})"
           + ("  NOBODY FLAGGED" if flags["nobody_flagged"] else ""))
 
-    quality = bias = subgroups = join_summary = None
+    quality = subgroups = join_summary = None
     coverage = None
+    by_id = features.set_index("customerid")
+    truth = None
     if args.labels:
         labels = pd.read_csv(io.BytesIO(
             s3.get_object(Bucket=config.BUCKET_NAME, Key=args.labels)["Body"].read()))
@@ -65,20 +67,23 @@ def main() -> None:
         coverage = join.coverage
         frame = join.frame
         quality = mon.quality_report(frame["churn_label"], frame["churn_probability"], threshold)
-        facet = mon.credit_rating_facet(features.set_index("customerid").loc[frame["customerid"]])
-        bias = mon.bias_report(frame["churn_label"], frame["churn_probability"],
-                               facet.to_numpy(), config.MONITORING_BIAS_ADVANTAGED, threshold)
         subgroups = mon.subgroup_report(
-            frame.assign(credit_rating=facet.to_numpy()), frame["churn_label"],
-            frame["churn_probability"], by="credit_rating", threshold=threshold)
+            frame.assign(credit_rating=mon.credit_rating_facet(by_id.loc[frame["customerid"]]).to_numpy()),
+            frame["churn_label"], frame["churn_probability"], by="credit_rating", threshold=threshold)
         join_summary = join.summary()
+        truth = scores["customerid"].map(frame.set_index("customerid")["churn_label"]).to_numpy()
         print(f"  join    {join.matched:,} matched, coverage {coverage:.2%}")
         print(f"  quality precision {quality['Precision']:.4f}  recall {quality['Recall']:.4f}  "
               f"F2 {quality['F2']:.4f}")
-        if bias["assessed"]:
-            print(f"  bias    DI {bias['DI']:.3f}" + ("  FOUR-FIFTHS BREACH" if bias["four_fifths_breach"] else ""))
-        else:
-            print(f"  bias    not assessed, {bias['reason']}")
+
+    # Every scored row: who gets flagged needs no outcomes. Labels only add RD and AD.
+    facet = mon.credit_rating_facet(by_id.loc[scores["customerid"]])
+    bias = mon.bias_report(scores["churn_probability"], facet.to_numpy(),
+                           config.MONITORING_BIAS_ADVANTAGED, threshold, labels=truth)
+    if bias["assessed"]:
+        print(f"  bias    DI {bias['DI']:.3f}" + ("  FOUR-FIFTHS BREACH" if bias["four_fifths_breach"] else ""))
+    else:
+        print(f"  bias    not assessed, {bias['reason']}")
 
     report = {
         "run_id": args.run_id, "manifest": manifest, "drift": drift, "flags": flags,

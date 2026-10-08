@@ -36,10 +36,12 @@ sequenceDiagram
             S3-->>Monitor: customer IDs and churn labels
             Monitor->>Monitor: join by customer ID and record coverage
             Monitor->>Monitor: recompute decisions from scores and cutoff
-            Monitor->>Monitor: calculate quality, credit-rating differences and subgroup reports
-            Note over Monitor: Drift, quality and group results ready to publish
+            Monitor->>Monitor: calculate model quality, per-group recall and accuracy, and subgroup reports
+            Note over Monitor: Model quality and per-group performance ready
         else Labels not supplied
-            Note over Monitor: Drift and flag rate ready<br/>Quality and group results omitted
+            Note over Monitor: Model quality and per-group performance omitted
         end
+        Monitor->>Monitor: compare credit-rating flag rates across all scored customers
+        Note over Monitor: Fairness needs no labels<br/>Assess ratio only when enough customers are flagged
     end
 ```

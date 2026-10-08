@@ -335,6 +335,8 @@ at `0740804`: calculations, subgroup reports, feature-version baseline, metric
 payload, dashboard and alarm behavior. The six System 2 expectations and their
 implementation/gaps are mapped in
 [Monitoring](Documentation/Pipeline/Children/Monitoring/Monitoring.html).
+Fairness also follows Dennis’s later update: disparate impact uses all scored customers and does not require labels.
+
 Personal adaptations are limited to configuration, AWS session, existing artifact
 paths and explicit SSE-S3 writes. No new monitoring capability fills the reference’s gaps.
 
@@ -391,7 +393,7 @@ Later runs omit `--baseline-from` to reuse that baseline. Supplying it again
 that it belongs to the model being monitored. Previous personal
 `baselines/<execution-id>/` files are no longer used; nothing deletes them.
 
-Without labels, only drift and outreach measurements are produced. When labels
+Without labels, drift, outreach and fairness measurements are produced. The fairness ratio still requires the configured minimum number of flagged customers. When labels
 are available, pass their **key within the configured bucket**, not a full S3 URI:
 
 ```bash
@@ -402,8 +404,8 @@ uv run python monitoring/run_monitoring.py \
 
 The CSV needs `customerid,churn_label`; customer IDs must be unique and labels
 must be 0 or 1. At least one customer must match. Labels are not auto-discovered.
-The report records join coverage. In parity with the reference, quality/bias
-recompute decisions using `score > cutoff`, despite System 2’s contract saying
+The report records join coverage. In parity with the reference, model quality
+recomputes decisions using `score > cutoff`; fairness uses `score >= cutoff`, despite System 2’s contract saying
 to consume the existing flags. That discrepancy is documented, not silently fixed.
 
 ### Optional labelled replay and drift simulation

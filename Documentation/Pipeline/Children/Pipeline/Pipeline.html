@@ -84,9 +84,50 @@
   </ol>
   <p>Unseen ServiceArea values map to zero; unseen one-hot categories produce all zeros. Entirely missing numeric training columns use zero instead of a median. No probability recalibration is fitted here; the saved factor is <code>1.0</code>.</p>
 
+  <p>The preprocessing contract looks like this:</p>
+
+<pre class="overflowBlock"><code>
+{
+  "service_area_encoding": {
+    "NYCBRO917": 0.03260291607197828,
+    "DALDAL214": 0.029188705118517896
+    // ...718 service areas total
+  },
+  "imputation_values": {
+    "monthlyrevenue": 48.3,
+    "monthlyminutes": 365.0,
+    "totalrecurringcharge": 45.0
+    // ...36 columns total, each with its missing-value replacement
+  },
+  "recalibration_factor": 1.0,
+  "category_levels": {
+    "childreninhh": ["No", "Yes"],
+    "handsetrefurbished": ["No", "Yes"],
+    "handsetwebcapable": ["No", "Yes"]
+    // ...19 categorical columns total
+  },
+  "feature_names": [
+    "monthlyrevenue",
+    "monthlyminutes",
+    "totalrecurringcharge",
+    "directorassistedcalls"
+    // ...70 features total, in the order expected by the model
+  ],
+  "preprocess_version": "preprocess/v1",
+  "split_seed": 540,
+  "split_fractions": {
+    "train": 0.7,
+    "validation": 0.15,
+    "test": 0.15
+  }
+}
+</code></pre>
+
 
   <h4>Artifacts and effects analysis</h4>
+
   <h5>Versioned processes and outputs</h5>
+
   <p><code>CURATED_VERSION</code> selects the input directory. <code>PREPROCESSING_CONTRACT</code> identifies the transformation rules; fitted values are saved separately for each execution.</p>
   <h5>S3 layout after the step</h5>
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
