@@ -86,7 +86,7 @@
 
   <p>The preprocessing contract looks like this:</p>
 
-<pre class="overflowBlock"><code>
+  <pre class="overflowBlock"><code>
 {
   "service_area_encoding": {
     "NYCBRO917": 0.03260291607197828,
@@ -574,6 +574,7 @@ s3://sagemaker-us-east-1-702238036392/
   <h4>Overview</h4>
 
   <diagram-widget fileName="SequenceDiagram_Action_5.md"></diagram-widget>
+
   <p>The model emits raw scores for validation customers. Evaluate chooses a cutoff using those scores and the known validation labels, then applies that fixed cutoff to test predictions to calculate the confusion matrix, precision, recall, F1 and accuracy. The test results do not influence the cutoff. ROC-AUC is calculated across thresholds from the test scores; the quality gate checks AUC independently of the selected cutoff.</p>
   <p><strong>Choosing the cutoff.</strong> At each candidate cutoff, TPR is the fraction of churners flagged and FPR is the fraction of non-churners flagged. The calculation assumes 2% churn in production, $500 per missed churner and $100 per contact, including correctly contacted churners. Estimated cost per customer is:</p>
   <latex-widget inline="false">C(t)=0.02[1-\mathrm{TPR}(t)]\,500+0.02\,\mathrm{TPR}(t)\,100+0.98\,\mathrm{FPR}(t)\,100</latex-widget>
@@ -586,10 +587,102 @@ s3://sagemaker-us-east-1-702238036392/
   <latex-widget inline="false">k=\frac{\pi_{\mathrm{prod}}/(1-\pi_{\mathrm{prod}})}{\pi_{\mathrm{sample}}/(1-\pi_{\mathrm{sample}})},\qquad p_{\mathrm{prod}}=\frac{k\,p_{\mathrm{sample}}}{1-p_{\mathrm{sample}}+k\,p_{\mathrm{sample}}}</latex-widget>
   <p>For 2% versus 28.8%, <latex-widget inline="true">k\approx0.0505</latex-widget>; a sample probability of 0.80 would become about 0.168. This changes the probability scale, not customer ranking. Applying the same monotonic transformation to both scores and cutoff would preserve the contact decisions.</p>
   <p><strong>This probability adjustment is not implemented here or in the team's current pipeline.</strong> Recalibration remains <code>1.0</code>. The implemented method leaves scores unchanged and accounts for prevalence in the cost calculation used to choose the cutoff. Passing the AUC gate does not establish that contacting customers is economically beneficial.</p>
+
+  <p>The evaluation contract looks like this:</p>
+
+  <pre><code>{
+    "binary_classification_metrics": {
+        "auc": {
+            "value": 0.674140
+        },
+        "pr_auc": {
+            "value": 0.451866
+        },
+        "precision": {
+            "value": 0.606383
+        },
+        "recall": {
+            "value": 0.103308
+        },
+        "f1": {
+            "value": 0.176539
+        },
+        "f2": {
+            "value": 0.123859
+        },
+        "accuracy": {
+            "value": 0.722215
+        },
+        "confusion_matrix": {
+            "tp": 228,
+            "fp": 148,
+            "fn": 1979,
+            "tn": 5302
+        }
+    },
+    "prevalence_projected": {
+        "true_prevalence": 0.02,
+        "sample_prevalence": 0.288233,
+        "precision_at_true_prevalence": 0.072044,
+        "f2_at_true_prevalence": 0.095058,
+        "pr_auc_at_true_prevalence": 0.044604,
+        "note": "TPR and FPR are prevalence-invariant; precision is not."
+    },
+    "threshold": {
+        "value": 0.555375850200653,
+        "selected_on": "validation",
+        "validation_rows": 7657,
+        "prevalence": 0.02,
+        "cost_fn": 500.0,
+        "cost_contact": 100.0,
+        "expected_cost": 11.851785,
+        "no_contact_cost": 10.0,
+        "contact_nobody": true,
+        "outreach_policy": "top_k",
+        "top_k": 0.05
+    },
+    "test_at_threshold": {
+        "sample": {
+            "threshold": 0.555375850200653,
+            "prevalence": null,
+            "tpr": 0.103308,
+            "fpr": 0.027156,
+            "precision": 0.606383,
+            "recall": 0.103308,
+            "f1": 0.176539,
+            "f2": 0.123859,
+            "tp": 228,
+            "fp": 148,
+            "fn": 1979,
+            "tn": 5302
+        },
+        "projected": {
+            "threshold": 0.555375850200653,
+            "prevalence": 0.02,
+            "tpr": 0.103308,
+            "fpr": 0.027156,
+            "precision": 0.072044,
+            "recall": 0.103308,
+            "f1": 0.084889,
+            "f2": 0.095058,
+            "tp": 228,
+            "fp": 148,
+            "fn": 1979,
+            "tn": 5302
+        }
+    }
+}
+  </code></pre>
+
   <h4>Artifacts and effects analysis</h4>
+
   <h5>Versioned processes and outputs</h5>
+
   <p>The evaluation report belongs to the same model version and execution as the trained artifact.</p>
+
+
   <h5>S3 layout after the step</h5>
+
   <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/
 │  ├─ process/validation/validation.csv         [READ]
