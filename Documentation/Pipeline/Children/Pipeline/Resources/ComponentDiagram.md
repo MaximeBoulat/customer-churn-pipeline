@@ -5,10 +5,13 @@ subgraph VMs
 direction LR
     Preparation["Preprocessing and ingestion jobs"]
     Training["XGBoost training job"]
+    Benchmark["Logistic-regression benchmark job"]
     Evaluation["Evaluation job"]
 
     Preparation --> Training 
+    Preparation --> Benchmark
     Training --> Evaluation
+    Benchmark --> Evaluation
 
    
 end

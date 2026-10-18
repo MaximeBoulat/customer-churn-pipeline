@@ -22,6 +22,8 @@ sequenceDiagram
     alt AUC meets configured minimum
         Note over Pipeline: Continue to model registration
     else AUC below configured minimum
+        Pipeline->>Jobs: run RecordGateFailed
+        Jobs->>S3: record failed gate and skipped registration in manifest
         Note over Pipeline: Execution fails - no package registered
     end
 ```

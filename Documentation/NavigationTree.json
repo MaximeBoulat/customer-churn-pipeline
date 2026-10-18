@@ -3,7 +3,7 @@
     "id": 1,
     "type": "folder",
     "title": "Documentation",
-    "lastModified": "2026-10-01",
+    "lastModified": "2026-10-17",
     "folderName": "Documentation",
     "description": "",
     "children": [
@@ -11,7 +11,7 @@
         "id": 2,
         "type": "parentArticle",
         "title": "Pipeline",
-        "lastModified": "2026-10-02",
+        "lastModified": "2026-10-17",
         "folderName": "Pipeline",
         "description": "Personal churn pipeline: curation, preprocessing, Feature Store and model candidate registration.",
         "url": "Pipeline.html",
@@ -20,7 +20,7 @@
             "id": 21,
             "type": "article",
             "title": "Data catalog",
-            "lastModified": "2026-10-01",
+            "lastModified": "2026-10-17",
             "folderName": "DataCatalog",
             "description": "",
             "url": "DataCatalog.html"
@@ -29,7 +29,7 @@
             "id": 23,
             "type": "article",
             "title": "Pipeline",
-            "lastModified": "2026-10-02",
+            "lastModified": "2026-10-17",
             "folderName": "Pipeline",
             "description": "Provision and run the SageMaker preprocessing, Feature Store ingestion, training, evaluation and registration pipeline.",
             "url": "Pipeline.html"
@@ -47,7 +47,7 @@
             "id": 24,
             "type": "article",
             "title": "Batch transform",
-            "lastModified": "2026-10-03",
+            "lastModified": "2026-10-17",
             "folderName": "BatchTransform",
             "description": "Run batch inference on curated holdout using the pinned approved model and publish scores for monitoring.",
             "url": "BatchTransform.html"

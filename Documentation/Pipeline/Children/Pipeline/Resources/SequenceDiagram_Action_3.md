@@ -17,11 +17,12 @@ sequenceDiagram
     Note over Operator,S3: Ingest features
     Note over Pipeline: Preprocessing succeeded
     Pipeline->>Jobs: start ingestion
-    Jobs->>S3: read splits, identifiers and fitted parameters
+    Jobs->>S3: read training split, identifiers and fitted parameters
     S3-->>Jobs: processed rows and feature names
     Jobs->>Group: check readiness and schema
     Group-->>Jobs: ready group and field definitions
-    loop Every row in train, validation and test
+    Jobs->>Jobs: check training identifiers align and select first 100 rows
+    loop Up to 100 training records
         Jobs->>Group: put feature record
         Group-->>Jobs: record accepted
     end

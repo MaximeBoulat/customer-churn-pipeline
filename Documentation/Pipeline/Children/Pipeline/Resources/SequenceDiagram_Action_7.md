@@ -18,5 +18,7 @@ sequenceDiagram
     Note over Pipeline: Quality gate passed
     Pipeline->>Registry: register model and image with evaluation and preprocessing references
     Registry-->>Pipeline: package version
+    Pipeline->>Jobs: run RecordSuccess
+    Jobs->>S3: record passed gate, registration and package ARN and version
     Note over Registry: Candidate has PendingManualApproval status
 ```

@@ -28,6 +28,12 @@ locals {
       Values = [local.model_path, "evaluation/evaluation.json"]
     }
   }
+  baseline_model_uri = {
+    "Std:Join" = {
+      On     = "/"
+      Values = [local.model_path, "logistic-regression/model.joblib"]
+    }
+  }
   processing_base = {
     RoleArn = data.aws_iam_role.execution.arn
     Environment = {
@@ -72,6 +78,20 @@ locals {
     }
   } }
 
+  record_arguments = {
+    for outcome in ["passed", "failed"] : outcome => merge(local.processing_base, {
+      AppSpecification = {
+        ImageUri            = local.xgboost_image
+        ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/record_stages.py"]
+        ContainerArguments = concat(
+          ["--execution-id", local.execution_id, "--gate", outcome],
+          [for argument in ["--model-package-arn", { Get = "Steps.RegisterModel.ModelPackageArn" }] : argument if outcome == "passed"]
+        )
+      }
+      ProcessingInputs = [local.code_input]
+    })
+  }
+
   definition = {
     Version    = "2020-12-01"
     Metadata   = {}
@@ -108,7 +128,7 @@ locals {
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/ingest.py"]
             ContainerArguments  = ["--feature-group", aws_sagemaker_feature_group.features.feature_group_name, "--region", var.region, "--execution-id", local.execution_id]
           }
-          ProcessingInputs = concat([local.code_input], [for name in ["train", "validation", "test", "contract", "identifiers"] : local.process_inputs[name]])
+          ProcessingInputs = concat([local.code_input], [for name in ["train", "contract", "identifiers"] : local.process_inputs[name]])
           ProcessingOutputConfig = { Outputs = [{
             OutputName = "ingestion"
             S3Output = {
@@ -132,7 +152,7 @@ locals {
           HyperParameters = {
             objective = "binary:logistic", max_depth = "5", eta = "0.2", gamma = "4",
             min_child_weight = "6", subsample = "0.8", verbosity = "0", num_round = "100",
-            eval_metric = "auc", seed = "540"
+            eval_metric = "auc"
           }
           InputDataConfig = [for name in ["train", "validation"] : {
             ChannelName = name
@@ -146,15 +166,59 @@ locals {
         }
       },
       {
+        Name      = "TrainBaseline"
+        Type      = "Processing"
+        DependsOn = ["IngestFeatures"]
+        Arguments = merge(local.processing_base, {
+          AppSpecification = {
+            ImageUri            = local.xgboost_image
+            ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/train_baseline.py"]
+          }
+          ProcessingInputs = [local.code_input, local.process_inputs.train, local.process_inputs.validation, local.process_inputs.test]
+          ProcessingOutputConfig = { Outputs = [
+            {
+              OutputName = "scores"
+              S3Output = {
+                S3Uri        = { "Std:Join" = { On = "/", Values = [local.run_path, "baseline/scores"] } }
+                LocalPath    = "/opt/ml/processing/output/scores"
+                S3UploadMode = "EndOfJob"
+              }
+            },
+            {
+              OutputName = "model"
+              S3Output = {
+                S3Uri        = { "Std:Join" = { On = "/", Values = [local.model_path, "logistic-regression"] } }
+                LocalPath    = "/opt/ml/processing/output/model"
+                S3UploadMode = "EndOfJob"
+              }
+            }
+          ] }
+        })
+      },
+      {
         Name = "Evaluate"
         Type = "Processing"
         Arguments = merge(local.processing_base, {
           AppSpecification = {
             ImageUri            = local.xgboost_image
             ContainerEntrypoint = ["python3", "/opt/ml/processing/input/code/evaluate.py"]
-            ContainerArguments  = ["--execution-id", local.execution_id, "--top-k", tostring(var.outreach_top_k)]
+            ContainerArguments = [
+              "--execution-id", local.execution_id, "--top-k", tostring(var.outreach_top_k),
+              "--training-job", { Get = "Steps.Train.TrainingJobName" },
+              "--model-data", { Get = "Steps.Train.ModelArtifacts.S3ModelArtifacts" },
+              "--baseline-model-uri", local.baseline_model_uri
+            ]
           }
           ProcessingInputs = [local.code_input, local.process_inputs.validation, local.process_inputs.test, {
+            InputName = "baseline"
+            S3Input = {
+              S3Uri                  = { Get = "Steps.TrainBaseline.ProcessingOutputConfig.Outputs['scores'].S3Output.S3Uri" }
+              LocalPath              = "/opt/ml/processing/input/baseline"
+              S3DataType             = "S3Prefix"
+              S3InputMode            = "File"
+              S3DataDistributionType = "FullyReplicated"
+            }
+          }, {
             InputName = "model"
             S3Input = {
               S3Uri                  = { Get = "Steps.Train.ModelArtifacts.S3ModelArtifacts" }
@@ -212,10 +276,20 @@ locals {
                 SupportedRealtimeInferenceInstanceTypes = [var.instance_type]
               }
             }
+          }, {
+            Name      = "RecordSuccess"
+            Type      = "Processing"
+            DependsOn = ["RegisterModel"]
+            Arguments = local.record_arguments.passed
           }]
           ElseSteps = [{
+            Name      = "RecordGateFailed"
+            Type      = "Processing"
+            Arguments = local.record_arguments.failed
+          }, {
             Name      = "QualityGateFailed"
             Type      = "Fail"
+            DependsOn = ["RecordGateFailed"]
             Arguments = { ErrorMessage = "Test AUC below the configured minimum; model not registered." }
           }]
         }

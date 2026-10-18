@@ -15,10 +15,11 @@ sequenceDiagram
         participant S3 as S3 storage
     end
     Note over Operator,S3: Evaluate
-    Note over Pipeline: Training succeeded
+    Note over Pipeline: XGBoost and benchmark jobs succeeded
     Pipeline->>Jobs: start evaluation
-    Jobs->>S3: read model artifact, validation CSV and test CSV
-    S3-->>Jobs: model and labeled rows
+    Jobs->>S3: record completed XGBoost training job and model URI
+    Jobs->>S3: read model, validation and test CSVs and benchmark scores
+    S3-->>Jobs: model, labeled rows and benchmark evidence
     Jobs->>Jobs: predict raw validation scores
     Jobs->>Jobs: compare cutoff costs at 2 percent prevalence
     alt Contact nobody has the lowest cost
@@ -30,7 +31,9 @@ sequenceDiagram
     Jobs->>Jobs: predict raw test scores
     Jobs->>Jobs: apply selected cutoff to test confusion matrix and metrics
     Jobs->>Jobs: calculate ROC-AUC independently of selected cutoff
-    Jobs->>S3: write evaluation report and update execution manifest
+    Jobs->>Jobs: compare benchmark and XGBoost on the same test split
+    Note over Jobs: Unavailable benchmark has an explicit reason
+    Jobs->>S3: write comparison in report and update execution manifest
     Jobs-->>Pipeline: evaluation succeeded
     Note over Pipeline: Metrics ready for quality gate
 ```

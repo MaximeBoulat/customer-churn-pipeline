@@ -126,9 +126,10 @@ There is one execution path:
 
 ```text
 curated labeled Parquet
-  → Preprocess → IngestFeatures → Train → Evaluate → QualityGate
-                                                      ├─ RegisterModel: PendingManualApproval
-                                                      └─ Fail: no package
+  → Preprocess → IngestFeatures → Train ──────────┐
+                              └→ TrainBaseline ──┴→ Evaluate → QualityGate
+                                                     ├─ RegisterModel → RecordSuccess
+                                                     └─ RecordGateFailed → Fail
 ```
 
 `pipeline/` contains the preprocessing and ingestion code, the Feature Group
@@ -139,7 +140,9 @@ data-catalog stack remains separate.
 
 Preprocessing splits labeled customers 70/15/15, fits medians and encodings on
 training rows only, and writes label-first CSVs and fitted parameters. Ingestion
-sends all three splits to the offline Feature Store. Training waits for ingestion
+sends only the first 100 training records (or all training records if fewer) to
+the offline Feature Store, matching the shared pipeline's sampling approach.
+This demonstrates ingestion without uploading the full dataset. Training waits for ingestion
 to succeed, then reads the **same CSV outputs directly**, not the offline store.
 Batch inference uses the unlabeled holdout.
 
@@ -213,10 +216,36 @@ personal output bucket and existing lab SageMaker bucket. The offline bucket in
   `MODEL_VERSION`. Package metadata includes its fitted preprocessing S3 URI.
 
 The execution manifest is written to `pipeline/{execution-id}/execution_manifest.json`
-and updated by preprocessing, ingestion and evaluation. Evaluation selects a
+and updated by preprocessing, ingestion and evaluation. Evaluation records the completed
+XGBoost training job and artifact before calculating metrics. `RecordSuccess`
+records the passed gate and registered package ARN/version; `RecordGateFailed`
+records a failed gate and skipped registration before the Fail step. These new
+recording writes propagate failures. Curation is marked `external`, because it
+happens before this execution; existing manifests are not rewritten. Evaluation selects a
 cost-aware cutoff on validation and applies it to test predictions; the independent
 **AUC gate** uses `TF_VAR_auc_threshold`. Recalibration factor **1.0** means no
 probability adjustment.
+
+### Model benchmarks
+
+After ingestion, `Train` and `TrainBaseline` can run concurrently.
+The baseline fits StandardScaler and logistic regression on training rows only,
+then saves validation/test scores and a convergence summary under
+`pipeline/{execution-id}/baseline/scores/`. Its fitted model is saved under
+`models/cell2cell/{model-version}/{execution-id}/logistic-regression/model.joblib`.
+It uses the existing XGBoost container's bundled scikit-learn; no job-time install
+or additional configuration is required.
+
+Evaluation waits for both branches. It compares XGBoost, logistic regression and
+always-no-churn predictions on the same test split. Each learned model's cutoff
+comes from its own validation scores using the existing cost and top-k policy.
+The report contains `baselines`, `beats_baselines`, `comparison` and
+`comparison_complete`. Comparison cost is per customer at 2% prevalence,
+using test TPR/FPR; `threshold.expected_cost` remains the validation cost.
+Undefined metrics are JSON null. A failed baseline fit or unusable baseline
+scores are reported with a reason and do not block XGBoost registration;
+a failed AWS job still blocks downstream steps. Only XGBoost is registered,
+and the AUC gate is unchanged.
 
 ### Feature schema changes
 

@@ -7,7 +7,8 @@
 
 <body>
   <h2>Feature overview</h2>
-  <p>The SageMaker pipeline starts from curated labeled Parquet. It runs preprocessing and Feature Store ingestion, trains XGBoost, evaluates it on the test split, and registers a model only when its AUC passes the quality gate. A registered model starts as <code>PendingManualApproval</code>; this does not approve or deploy it.</p>
+  
+  <p>The SageMaker pipeline starts from curated labeled Parquet. It runs preprocessing and Feature Store ingestion, trains XGBoost and a logistic-regression benchmark, compares them with an always-no-churn baseline on the test split, and registers a model only when its AUC passes the quality gate. A registered model starts as <code>PendingManualApproval</code>; this does not approve or deploy it.</p>
 
   <h2>Component analysis</h2>
 
@@ -36,13 +37,17 @@
 
   <h5>S3 layout after the step</h5>
 
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/
-<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ code/                  [WRITE] added initially; updated when changed
+<span style="background-color: #fff3e0; color: #8a4500;">│  └─ code/                  [WRITE] added initially; updated when changed
 │     ├─ preprocess.py
 │     ├─ process.py
 │     ├─ ingest.py
-│     └─ evaluate.py</span>
+│     ├─ evaluate.py
+│     ├─ train_baseline.py
+│     ├─ evaluation_evidence.py
+│     ├─ model_comparison.py
+│     └─ record_stages.py</span>
 └─ …</pre>
   <h5>Dataset before and after</h5>
   <p>Unchanged. This operation provisions resources and uploads code.</p>
@@ -130,12 +135,12 @@
 
   <p><code>CURATED_VERSION</code> selects the input directory. <code>PREPROCESSING_CONTRACT</code> identifies the transformation rules; fitted values are saved separately for each execution.</p>
   <h5>S3 layout after the step</h5>
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ curated/cell2cell/{curated-version}/
 │  ├─ split=train/                     [READ]
 │  └─ split=holdout/                   untouched
 ├─ pipeline/{execution-id}/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ process/                         [WRITE]
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ process/                         [WRITE]
 │     ├─ train/train.csv
 │     ├─ validation/validation.csv
 │     ├─ test/test.csv
@@ -479,24 +484,24 @@
   <h4>Overview</h4>
 
   <diagram-widget fileName="SequenceDiagram_Action_3.md"></diagram-widget>
-  <p><code>ingest.py</code> checks group readiness and schema, then sends every processed row through <code>PutRecord</code>. Any ingestion failure blocks training. Successful ingestion means API acceptance; offline S3 delivery happens asynchronously.</p>
+  <p><code>ingest.py</code> checks group readiness, schema and training feature/identifier alignment, then sends only the first 100 training records through <code>PutRecord</code> (or all training records if fewer). This matches the shared pipeline's training-prefix sampling approach with a 100-record cap per execution. Validation and test records are not uploaded. The sample demonstrates the Feature Store handoff; downstream jobs read the full CSV splits directly. Any ingestion failure blocks training. Successful ingestion means API acceptance; offline S3 delivery happens asynchronously.</p>
   <h4>Artifacts and effects analysis</h4>
   <h5>Versioned processes and outputs</h5>
   <p><code>FEATURE_VERSION</code> selects the group and offline prefix. Records carry the execution ID and event time. If emitted fields change, regenerate <code>pipeline/schema.json</code> and bump the feature version before applying Terraform.</p>
   <h5>S3 layout after the step</h5>
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/
-│  ├─ process/                         [READ] splits, IDs and contract
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ feature-store/ingestion.json      [WRITE] accepted-record counts</span>
+│  ├─ process/                         [READ] training split, IDs and contract
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ feature-store/ingestion.json      [WRITE] accepted-record counts</span>
 └─ …
 
 s3://sagemaker-us-east-1-702238036392/
 ├─ features/churn-rebuild/cell2cell/{feature-version}/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;AWS-generated folders&gt;/
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ &lt;AWS-generated folders&gt;/
 │     └─ &lt;Parquet files&gt;               [WRITE] asynchronous delivery</span>
 └─ …</pre>
   <h5>Dataset before and after</h5>
-  <p>Feature values and split membership are unchanged. Records are appended to the offline store with the fields below. Training subsequently reads the CSVs directly.</p>
+  <p>The sampled records retain their feature values and training split membership. They are appended to the offline store with the fields below. The ingestion report counts accepted sample records; the execution manifest records that count as <code>records_written</code> and the full training-row count as <code>rows_transformed</code>. Training subsequently reads the full CSVs directly.</p>
   <div class="overflowBlock">
     <table class="tg">
       <thead>
@@ -557,17 +562,37 @@ s3://sagemaker-us-east-1-702238036392/
   <h5>Versioned processes and outputs</h5>
   <p><code>MODEL_VERSION</code> identifies the model configuration. The execution ID separates its artifact from other runs.</p>
   <h5>S3 layout after the step</h5>
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/process/
 │  ├─ train/train.csv                  [READ]
 │  ├─ validation/validation.csv        [READ]
 │  └─ …
 ├─ models/cell2cell/{model-version}/{execution-id}/
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ &lt;training-job-name&gt;/output/model.tar.gz [WRITE]</span>
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ &lt;training-job-name&gt;/output/model.tar.gz [WRITE]</span>
 └─ …</pre>
   <h5>Dataset before and after</h5>
   <p>No rows or columns change. The label is the target; numeric feature columns are the inputs. Test and holdout data are not read.</p>
 
+
+  <h3>Train the benchmark</h3>
+  <h4>Overview</h4>
+  <diagram-widget fileName="SequenceDiagram_Benchmark.md"></diagram-widget>
+  <p><code>TrainBaseline</code> runs after ingestion, alongside XGBoost training. It fits a StandardScaler and logistic regression on training rows only, then scores validation and test rows in their existing order. The existing XGBoost container supplies scikit-learn. The benchmark does not replace the operational model.</p>
+  <h4>Artifacts and effects analysis</h4>
+  <h5>Versioned processes and outputs</h5>
+  <p>The benchmark shares the execution and model-version prefixes. <code>baseline.json</code> records availability, convergence, iteration count, training row count and library version. A fit failure is recorded as unavailable with a reason; an infrastructure/job failure still blocks evaluation.</p>
+  <h5>S3 layout after the step</h5>
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
+├─ pipeline/{execution-id}/
+│  ├─ process/{train,validation,test}/           [READ] existing CSVs
+│  └─ baseline/scores/                          [WRITE]
+│     ├─ baseline.json
+│     ├─ validation.csv
+│     └─ test.csv
+└─ models/cell2cell/{model-version}/{execution-id}/
+   └─ logistic-regression/model.joblib          [WRITE when fit succeeds]</pre>
+  <h5>Dataset before and after</h5>
+  <p>Existing splits are unchanged. New score CSVs contain label and score, without headers, in the same order as the corresponding split. Evaluation consumes these scores rather than loading the scikit-learn model.</p>
 
   <h3>Evaluate</h3>
 
@@ -588,7 +613,8 @@ s3://sagemaker-us-east-1-702238036392/
   <p>For 2% versus 28.8%, <latex-widget inline="true">k\approx0.0505</latex-widget>; a sample probability of 0.80 would become about 0.168. This changes the probability scale, not customer ranking. Applying the same monotonic transformation to both scores and cutoff would preserve the contact decisions.</p>
   <p><strong>This probability adjustment is not implemented here or in the team's current pipeline.</strong> Recalibration remains <code>1.0</code>. The implemented method leaves scores unchanged and accounts for prevalence in the cost calculation used to choose the cutoff. Passing the AUC gate does not establish that contacting customers is economically beneficial.</p>
 
-  <p>The evaluation contract looks like this:</p>
+  <p><strong>Benchmark comparison.</strong> Evaluation waits for both training branches and checks baseline score shape, label order and finite probabilities. It evaluates logistic regression with the same cutoff policy as XGBoost, choosing each model's cutoff on validation only. The report adds <code>baselines</code>, <code>beats_baselines</code>, <code>comparison</code> and <code>comparison_complete</code>. The comparison contains one row each for always-no-churn, logistic regression and XGBoost: cutoff, confusion counts, precision, recall, F1, F2, ROC-AUC, PR-AUC and cost per customer. Comparison costs use test TPR/FPR at 2% prevalence; the threshold block's cost uses validation. Undefined metrics are JSON null. An unavailable benchmark retains its row and reason; only the XGBoost AUC controls registration.</p>
+  <p>The existing metric and threshold section of the evaluation contract looks like this; the comparison fields described above are added alongside it:</p>
 
   <pre><code>{
     "binary_classification_metrics": {
@@ -682,18 +708,22 @@ s3://sagemaker-us-east-1-702238036392/
 
   <h5>S3 layout after the step</h5>
 
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/
 │  ├─ process/validation/validation.csv         [READ]
 │  ├─ process/test/test.csv                     [READ]
-<span style="background-color: #fff3e0; color: #8a4500; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ execution_manifest.json                  [WRITE]</span>
+<span style="background-color: #fff3e0; color: #8a4500;">│  └─ execution_manifest.json                  [WRITE]</span>
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  ├─ &lt;training-job-name&gt;/output/model.tar.gz   [READ]
-<span style="background-color: #e8f5e9; color: #1b5e20; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">│  └─ evaluation/evaluation.json               [WRITE]</span>
+<span style="background-color: #e8f5e9; color: #1b5e20;">│  └─ evaluation/evaluation.json               [WRITE]</span>
 └─ …</pre>
   <h5>Dataset before and after</h5>
   <p>Validation and test rows and columns remain unchanged. The evaluation report records the selected cutoff, its cost and fallback policy, test metrics at that cutoff, and metrics projected to 2% prevalence. The manifest records the cutoff, policy and evaluation results.</p>
 
+
+  <h3>Execution manifest recording</h3>
+  <p>At the start of evaluation, the completed XGBoost training job name and model URI are recorded with <code>training=completed</code>. The benchmark does not write the manifest concurrently. Preprocessing, ingestion and evaluation retain their existing stage updates; the two gate branches add explicit outcome recording. Curation is marked <code>external</code> because it ran before this pipeline execution.</p>
+  <p>The new training/outcome writes fail their step if recording fails. This is not a general failure reconciler: an execution interrupted before evaluation can still leave training pending, and failure before outcome recording can leave gate/registration pending. SageMaker execution history remains authoritative for those cases. Historical manifests are not migrated.</p>
 
   <h3>Quality gate</h3>
 
@@ -705,11 +735,11 @@ s3://sagemaker-us-east-1-702238036392/
   <h5>Versioned processes and outputs</h5>
   <p>No new artifact version is created. The pass/fail result is recorded in the pipeline execution.</p>
   <h5>S3 layout after the step</h5>
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  └─ evaluation/evaluation.json       [READ]
 └─ …</pre>
-  <p>No S3 writes. Existing artifacts remain if the gate fails.</p>
+  <p>The condition itself writes no S3 objects. On failure, <code>RecordGateFailed</code> updates the execution manifest with <code>gate=failed</code> and <code>registration=skipped</code> before the Fail step ends the execution. Existing model and evaluation artifacts remain.</p>
   <h5>Dataset before and after</h5>
   <p>Unchanged; the gate reads a metric, not dataset rows.</p>
 
@@ -724,14 +754,14 @@ s3://sagemaker-us-east-1-702238036392/
   <h5>Versioned processes and outputs</h5>
   <p>SageMaker adds a numeric package version to the model package group. That number is independent of <code>MODEL_VERSION</code>.</p>
   <h5>S3 layout after the step</h5>
-  <pre class="overflowBlock" style="font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;">s3://customer-churn-pipeline-a81b79/
+  <pre class="overflowBlock">s3://customer-churn-pipeline-a81b79/
 ├─ pipeline/{execution-id}/process/contract/
 │  └─ preprocessing_parameters.json    [REFERENCED by package]
 ├─ models/cell2cell/{model-version}/{execution-id}/
 │  ├─ &lt;training-job-name&gt;/output/model.tar.gz [REFERENCED by package]
 │  └─ evaluation/evaluation.json       [REFERENCED by package]
 └─ …</pre>
-  <p>No new S3 files. The new package is a SageMaker registry entry.</p>
+  <p>The new package is a SageMaker registry entry. After registration, <code>RecordSuccess</code> writes <code>gate=completed</code>, <code>registration=completed</code>, the package ARN and numeric package version to the execution manifest. It does not approve the package.</p>
   <h5>Dataset before and after</h5>
   <p>Unchanged. No dataset is read or rewritten.</p>
 

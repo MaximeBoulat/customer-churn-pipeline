@@ -1,4 +1,4 @@
-"""Ingest all three processed splits into an offline Feature Group."""
+"""Ingest up to 100 training records into an offline Feature Group."""
 from __future__ import annotations
 
 import argparse
@@ -54,11 +54,16 @@ def main():
                 time.sleep(2 ** attempt)
 
     counts = {}
-    for split in ("train", "validation", "test"):
+    for split in ("train",):
         table = pd.read_csv(root / split / f"{split}.csv", header=None)
         ids = pd.read_csv(root / "identifiers" / f"{split}.csv", header=None).iloc[:, 0]
         if len(ids) != len(table) or table.shape[1] != len(features) + 1:
             raise ValueError(f"Feature/identifier shape mismatch for {split}")
+        rows_transformed = len(table)
+        # Match the shared pipeline's training-prefix sample. Downstream jobs
+        # read the full CSV splits directly, so only demonstrate the store handoff.
+        table = table.head(100)
+        ids = ids.head(100)
 
         def records():
             for customer, values in zip(ids, table.itertuples(index=False, name=None)):
@@ -85,7 +90,7 @@ def main():
                        "record_identifier": "customerid",
                        "feature_count": len(expected)},
         ingestion={"records_written": sum(counts.values()),
-                   "rows_transformed": sum(counts.values())},
+                   "rows_transformed": rows_transformed},
         records_failed=0)
 
 

@@ -67,7 +67,8 @@ def _initial_manifest(
         "produced": {
             "model_package_version": None,
         },
-        "stages": {stage: "pending" for stage in STAGES},
+        # Curation is an external prerequisite, not a stage of this execution.
+        "stages": {stage: "external" if stage == "catalog" else "pending" for stage in STAGES},
     }
 
 
