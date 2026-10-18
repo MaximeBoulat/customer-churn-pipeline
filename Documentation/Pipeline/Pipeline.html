@@ -188,13 +188,76 @@
 
   <p><code>used</code> holds the four version axes for the execution, sourced from <code>pipeline/manifest_config.py</code> and the pipeline's environment at creation and fixed for the life of the run. <code>update_manifest(execution_id, stage, status, **produced_fields)</code> merges each stage's own fields into <code>produced</code> as a flat dict.</p>
 
-  <p>For the full schema see: <cross-reference-widget type="2" nodeId="23" pathLabel="Pipeline / Pipeline"></cross-reference-widget>.</p>
-
-  <h2>Detailed: every artifact and edge</h2>
-
-  <p>The whole system in one diagram &mdash; the reference the sections above summarise.</p>
-
-  <diagram-widget fileName="DetailedArchitecture.md"></diagram-widget>
+  <pre><code>{
+"execution_id": "w3qrdzhk74e5",
+"used": {
+    "curated_version": "v1",
+    "preprocessing_contract": "v1",
+    "feature_version": "v1",
+    "model_version": "v1"
+},
+"produced": {
+    "model_package_version": 7,
+    "preprocessing": {
+      "feature_count": 70,
+      "split_seed": 540,
+      "split_fractions": {
+          "train": 0.7,
+          "validation": 0.15,
+          "test": 0.15
+      }
+    },
+    "rows_curated": 51047,
+    "feature_group": {
+        "name": "churn-rebuild-features-v1",
+        "record_identifier": "customerid",
+        "feature_count": 75
+    },
+    "ingestion": {
+        "records_written": 100,
+        "rows_transformed": 35733
+    },
+    "records_failed": 0,
+    "xgboost": {
+        "training_job_name": "pipelines-w3qrdzhk74e5-Train-WJ1whyIKrK",
+        "model_data": "s3://customer-churn-pipeline-a81b79/models/cell2cell/v1/w3qrdzhk74e5/pipelines-w3qrdzhk74e5-Train-WJ1whyIKrK/output/model.tar.gz"
+    },
+    "logistic_regression": {
+        "available": true,
+        "scaler": "StandardScaler, fit on train",
+        "max_iter": 1000,
+        "iterations": 44,
+        "converged": true,
+        "sklearn": "0.24.1",
+        "train_rows": 35733,
+        "model": "logistic_regression",
+        "model_data": "s3://customer-churn-pipeline-a81b79/models/cell2cell/v1/w3qrdzhk74e5/logistic-regression/model.joblib"
+    },
+    "evaluation": {
+        "threshold": 0.8770734071731567,
+        "contact_nobody": false,
+        "outreach_policy": "cost_minimising",
+        "auc": 0.6704145691565203,
+        "pr_auc": 0.4536069591074687,
+        "confusion_matrix": {
+            "tp": 1,
+            "fp": 0,
+            "fn": 2206,
+            "tn": 5450
+        }
+    },
+    "model_package_arn": "arn:aws:sagemaker:us-east-1:702238036392:model-package/churn-rebuild-models/7"
+  },
+  "stages": {
+      "catalog": "external",
+      "processing": "completed",
+      "feature_store": "completed",
+      "training": "completed",
+      "evaluation": "completed",
+      "registration": "completed",
+      "gate": "completed"
+  }
+}</code></pre>
 
 </body>
 
